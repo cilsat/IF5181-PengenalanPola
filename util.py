@@ -19,7 +19,7 @@ def getunique(imgs):
     
     return uniq
 
-def getbackground(img, imgs):
+def getbackground(img, imgs, thrs):
     # count occurences of each unique pixel color
     id = np.append([0], np.any(np.diff(imgs, axis=0), axis=-1).cumsum())
     count = np.bincount(id)
@@ -29,8 +29,9 @@ def getbackground(img, imgs):
         idc = count[:np.argmax(count)].cumsum()[-1]
     # obtain most common pixel
     pxc = imgs[idc]
-    # compare each pixel in original image with most common pixel
-    # return TRUE if ANY of the 3 colors are the same
-    back = np.all(np.abs(img - pxc) <= 50, axis=-1)
+    # Subtract most common pixel from each pixel in original image
+    # If the absolute of the difference between the two is below a 
+    # certain threshold return TRUE for that pixel
+    back = np.any(np.abs(img - pxc) <= thrs, axis=-1)
 
     return back

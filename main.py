@@ -20,8 +20,8 @@ def main(argv):
     uniq = util.getunique(imgs)
     print uniq
 
-    # get and display background image
-    background = util.getbackground(img, imgs)
+    # get and display background image with threshold 15
+    background = util.getbackground(img, imgs, 15)
     displayimg(background)
 
 def displayimg(img):
