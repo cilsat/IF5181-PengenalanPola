@@ -12,12 +12,9 @@ def sortimg(img):
 
 def getunique(imgs):
     # detect unique colors:
-    # diff along image length to detect changes in pixel color
-    diff = np.diff(imgs, axis=0)
-    # any along axis 0 to count number of color changes
-    uniq = np.any(diff, axis=1).sum() + 1
-    
-    return uniq
+    # diff() along image length to detect changes in pixel color
+    # any() along axis 0 to count number of color changes
+    return np.any(np.diff(imgs, axis=0), axis=1).sum() + 1
 
 def getbackground(img, imgs, thrs):
     # count occurences of each unique pixel color
@@ -29,9 +26,10 @@ def getbackground(img, imgs, thrs):
         idc = count[:np.argmax(count)].cumsum()[-1]
     # obtain most common pixel
     pxc = imgs[idc]
-    # Subtract most common pixel from each pixel in original image
-    # If the absolute of the difference between the two is below a 
-    # certain threshold return TRUE for that pixel
+    # subtract most common pixel from each pixel in original image
+    # if the absolute of the difference between the two is below a 
+    # certain threshold return TRUE for that pixel (background)
+    # else return FALSE (foreground)
     back = np.any(np.abs(img - pxc) <= thrs, axis=-1)
 
     return back
