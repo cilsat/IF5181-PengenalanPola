@@ -1,8 +1,6 @@
-#!/bin/sh
+#!/bin/python
 import sys
 from scipy import misc
-import numpy as np
-import matplotlib.pyplot as plt
 
 import util
 
@@ -18,15 +16,45 @@ def main(argv):
 
     # get count of unique colors
     uniq = util.getunique(imgs)
-    print uniq
+    print(uniq)
 
-    # get and display background image with threshold 15
-    background = util.getbackground(img, imgs, 15)
-    displayimg(background)
+    # get and display histogram(s) of color(s)
+    hist = util.gethistogram(img)
+    plthist(hist)
 
-def displayimg(img):
+    # get and display background image with dynamic threshold 15
+    #background = util.getbackground(img, imgs, 15)
+    #pltshow(background)
+
+    background = util.otsu(img)
+    pltshow(background)
+
+def plthist(hist):
+    import matplotlib.pyplot as plt
+    x = xrange(len(hist[0]))
+
+    # if rgb
+    if len(hist) == 3:
+        plt.plot(x,hist[0],'r',x,hist[1],'g',x,hist[2],'b')
+    # if cmyk
+    elif len(hist) == 4:
+        plt.plot(x,hist[0],'c',x,hist[1],'y',x,hist[2],'m',x,hist[3],'k')
+    # if greyscale
+    elif len(hist) == 1:
+        plt.plot(x,hist[0],'b')
+
+    plt.show()
+
+def pltshow(img):
+    import matplotlib.pyplot as plt
     plt.imshow(img)
     plt.show()
+
+def pilshow(img):
+    from PIL import Image
+    import numpy as np
+    im = Image.fromarray(np.uint8(img*255))
+    im.save('/home/cilsat/Dropbox/kuliah/sem1/pp/test.jpg')
 
 if __name__ == ('__main__'):
     main(sys.argv)

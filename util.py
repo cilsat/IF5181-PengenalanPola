@@ -5,10 +5,24 @@ def flattenimg(img):
     return  img.reshape(-1, img.shape[-1])
 
 def sortimg(img):
-    # obtain indexes of a sorted matrix
+    # obtain indices of a sorted matrix
     id = np.lexsort(img.T)
     # rearrange matrix based on this index and return
     return  img[id, :]
+
+def gethistogram(img):
+    # reshape image
+    imgr = flattenimg(img)
+    # get histogram for each color
+    hist = []
+    [hist.append(np.histogram(imgr[:,n], bins=255)[0]) for n in xrange(imgr.shape[-1])]
+    
+    return hist
+
+def getgrayscale(img):
+    # sum colors (elements along last axis) and divide by number
+    # of colors
+    return np.sum(img,axis=-1)/img.shape[-1]
 
 def getunique(imgs):
     # detect unique colors:
@@ -26,10 +40,49 @@ def getbackground(img, imgs, thrs):
         idc = count[:np.argmax(count)].cumsum()[-1]
     # obtain most common pixel
     pxc = imgs[idc]
-    # subtract most common pixel from each pixel in original image
-    # if the absolute of the difference between the two is below a 
-    # certain threshold return TRUE for that pixel (background)
-    # else return FALSE (foreground)
+    # for each pixel in original image obtain its difference to pxc.
+    # if the absolute of the difference between ANY color in the two
+    # is below a certain threshold return TRUE for that pixel, hence
+    # indentify it as a background pixel.
+    # else return FALSE (foreground).
     back = np.any(np.abs(img - pxc) <= thrs, axis=-1)
 
     return back
+
+""" applies otsu's automatic thresholding algorithm to separate
+    background and foreground:
+    1. Compute histogram and probabilities of intensity levels
+    2. Initialize wb and mb
+    3. Step through each intensity level and compute:
+    4. wb and mb for that level
+    5. var**2b for that level
+    6. Once found for all levels, take maximum var**2
+"""
+def otsu(img):
+    # compute grayscale version of image
+    imgg = getgrayscale(img)
+    # compute histogram and probabilities
+    hist = np.histogram(imgg,bins=255)[0]
+    prob = 1.0*hist/imgg.size
+    # compute sum
+    sum = np.sum(hist*xrange(255)) 
+    # initialize loop variables
+    wb = 0
+    sumb = 0
+    tot = imgg.size
+    thr = []
+
+    for n in xrange(255):
+        wb += hist[n]
+        wf = tot - wb
+        if wb == 0:
+            continue
+        if wf == 0:
+            break
+        sumb += n*hist[n]
+        mb = 1.0*sumb/wb
+        mf = 1.0*(sum - sumb)/wf
+        thr.append(wb*wf*(mb-mf)**2)
+
+    lvl = np.argmax(thr) + 1
+    return imgg < lvl
