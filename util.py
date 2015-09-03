@@ -18,7 +18,8 @@ def gethistogram(img):
     # get histogram for each color the numpy way: use this!
     hist = []
     [hist.append(np.histogram(imgr[:,n], bins=255)[0]) for n in xrange(imgr.shape[-1])]
-    hist = hist.T
+
+    return np.asarray(hist).T
 
 """
     # horribly slow vanilla implementation: use only for proof of work
@@ -26,8 +27,8 @@ def gethistogram(img):
     for pixel in imgr:
         for color in xrange(imgr.shape[-1]):
             hist[pixel.item(color), color] += 1
-"""
     return hist
+"""
 
 def getgrayscale(img):
     # sum colors (elements along last axis) and divide by number
