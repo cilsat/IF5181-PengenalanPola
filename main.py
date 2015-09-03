@@ -31,18 +31,7 @@ def main(argv):
 
 def plthist(hist):
     import matplotlib.pyplot as plt
-    x = xrange(len(hist[0]))
-
-    # if rgb
-    if len(hist) == 3:
-        plt.plot(x,hist[0],'r',x,hist[1],'g',x,hist[2],'b')
-    # if cmyk
-    elif len(hist) == 4:
-        plt.plot(x,hist[0],'c',x,hist[1],'y',x,hist[2],'m',x,hist[3],'k')
-    # if greyscale
-    elif len(hist) == 1:
-        plt.plot(x,hist[0],'b')
-
+    plt.plot(hist)
     plt.show()
 
 def pltshow(img):

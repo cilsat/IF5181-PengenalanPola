@@ -10,13 +10,23 @@ def sortimg(img):
     # rearrange matrix based on this index and return
     return  img[id, :]
 
+""" Returns separate histogram for each color in a pixel: 3 for RGB, 4 for CMYK, 1 for Grayscale
+"""
 def gethistogram(img):
     # reshape image
     imgr = flattenimg(img)
-    # get histogram for each color
+    # get histogram for each color the numpy way: use this!
     hist = []
     [hist.append(np.histogram(imgr[:,n], bins=255)[0]) for n in xrange(imgr.shape[-1])]
-    
+    hist = hist.T
+
+"""
+    # horribly slow vanilla implementation: use only for proof of work
+    hist = np.zeros((256, imgr.shape[-1]), dtype=np.uint32)
+    for pixel in imgr:
+        for color in xrange(imgr.shape[-1]):
+            hist[pixel.item(color), color] += 1
+"""
     return hist
 
 def getgrayscale(img):
