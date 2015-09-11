@@ -17,9 +17,9 @@ def gethistogram(img):
     imgr = flattenimg(img)
     # get histogram for each color the numpy way: use this!
     hist = []
-    [hist.append(np.histogram(imgr[:,n], bins=255)[0]) for n in xrange(imgr.shape[-1])]
+    [hist.append(np.histogram(imgr[:,n], bins=256)[0]) for n in xrange(imgr.shape[-1])]
 
-    return np.asarray(hist).T
+    return np.asarray(hist)
 
 """
     # horribly slow vanilla implementation: use only for proof of work
@@ -29,6 +29,25 @@ def gethistogram(img):
             hist[pixel.item(color), color] += 1
     return hist
 """
+
+def equalize(img, hist):
+    # generate lookup table(s)
+    imgsize = img.shape[0]*img.shape[1]
+    lut = []
+    for color in xrange(img.shape[-1]):
+        # generate cumulative distribution function
+        cdf = hist[color].cumsum()
+        # retrieve first non-zero element of cdf
+        cdfmin  = cdf[np.nonzero(cdf)[0][0]]
+        # equalize the colors / generate lookup table
+        norm = (cdf - cdfmin)*255/(imgsize - cdfmin)
+        lut.append(norm)
+
+    lut = np.asarray(lut, dtype=np.uint8)
+
+    # remap colors in img according to lut (lookup table)
+    eq = np.dstack([lut[n][img[...,n]] for n in xrange(img.shape[-1])])
+    return eq
 
 def getgrayscale(img):
     # sum colors (elements along last axis) and divide by number
@@ -74,7 +93,6 @@ def otsu(img):
     imgg = getgrayscale(img)
     # compute histogram and probabilities
     hist = np.histogram(imgg,bins=255)[0]
-    prob = 1.0*hist/imgg.size
     # compute sum
     sum = np.sum(hist*xrange(255)) 
     # initialize loop variables
@@ -97,3 +115,6 @@ def otsu(img):
 
     lvl = np.argmax(thr) + 1
     return imgg < lvl
+
+#def equalize(img, hist):
+    # compute accumulator 

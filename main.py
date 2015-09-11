@@ -1,37 +1,42 @@
 #!/bin/python
 import sys
-from scipy import misc
+import matplotlib.image as mpimg
 
 import util
 
 def main(argv):
     # load image into ndarray
     if len(argv) > 1:
-        img = misc.imread(argv[1])
+        img = mpimg.imread(argv[1])
     else:
-        img = misc.imread('/home/cilsat/Pictures/1309116686491.jpg')
+        img = mpimg.imread('/home/cilsat/Pictures/1309116686491.jpg')
 
     # calc sorted 2-D representation of image
-    imgs = util.sortimg(util.flattenimg(img))
+    #imgs = util.sortimg(util.flattenimg(img))
 
     # get count of unique colors
-    uniq = util.getunique(imgs)
-    print(uniq)
+    #uniq = util.getunique(imgs)
+    #print(uniq)
 
     # get and display histogram(s) of color(s)
     hist = util.gethistogram(img)
-    plthist(hist)
+    #plthist(hist)
+
+    # equalize image
+    imgeq = util.equalize(img, hist)
+    pltshow(img)
+    pltshow(imgeq)
 
     # get and display background image with dynamic threshold 15
     #background = util.getbackground(img, imgs, 15)
     #pltshow(background)
 
-    background = util.otsu(img)
-    pltshow(background)
+    #background = util.otsu(img)
+    #pltshow(background)
 
 def plthist(hist):
     import matplotlib.pyplot as plt
-    plt.plot(hist)
+    plt.plot(hist.T)
     plt.show()
 
 def pltshow(img):
