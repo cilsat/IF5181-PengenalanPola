@@ -34,25 +34,40 @@ def equalize(img, hist):
     # generate lookup table(s)
     imgsize = img.shape[0]*img.shape[1]
     lut = []
+
+    # if grayscale add an axis
+    gs = False
+    if len(img.size) < 3:
+        gs = True
+        img = img.reshape((img.shape[0], img.shape[1], 1))
+
+    # for each color (1 for greyscale, 3 for RGB, 4 for CMYK)
     for color in xrange(img.shape[-1]):
         # generate cumulative distribution function
         cdf = hist[color].cumsum()
         # retrieve first non-zero element of cdf
-        cdfmin  = cdf[np.nonzero(cdf)[0][0]]
+        cdfmin = 0
+        while cdf.item(cdfmin) == 0:
+            cdfmin += 1
         # equalize the colors / generate lookup table
         norm = (cdf - cdfmin)*255/(imgsize - cdfmin)
         lut.append(norm)
 
     lut = np.asarray(lut, dtype=np.uint8)
 
-    # remap colors in img according to lut (lookup table)
+    # remap colors in img according to lut (lookup table):
     eq = np.dstack([lut[n][img[...,n]] for n in xrange(img.shape[-1])])
+    # if grayscale remove added axis
+    if gs:
+        eq = eq.reshape((img.shape[0], img.shape[1]))
     return eq
 
 def getgrayscale(img):
     # sum colors (elements along last axis) and divide by number
     # of colors
-    return np.sum(img,axis=-1)/img.shape[-1]
+    if img.dtype == "float32":
+        img[:] = np.asarray(img*255, dtype=np.uint8)
+    return np.asarray(np.sum(img,axis=-1)/img.shape[-1], dtype=np.uint8)
 
 def getunique(imgs):
     # detect unique colors:
@@ -60,7 +75,7 @@ def getunique(imgs):
     # any() along axis 0 to count number of color changes
     return np.any(np.diff(imgs, axis=0), axis=1).sum() + 1
 
-def getbackground(img, imgs, thrs):
+def getbackground(img, imgs, thrs=10):
     # count occurences of each unique pixel color
     id = np.append([0], np.any(np.diff(imgs, axis=0), axis=-1).cumsum())
     count = np.bincount(id)
@@ -114,7 +129,51 @@ def otsu(img):
         thr.append(wb*wf*(mb-mf)**2)
 
     lvl = np.argmax(thr) + 1
-    return imgg < lvl
+    if lvl < 128:
+        return imgg >= lvl
+    else:
+        return imgg < lvl
 
-#def equalize(img, hist):
-    # compute accumulator 
+def thin(img):
+    # binarize image
+    imgb = otsu(img)
+
+    # make copy of binarized image to store thinned image
+    imgt = np.copy(imgb)
+    # obtain image containing only chain code points
+    for row in xrange(1, imgb.shape[0] - 1):
+        for col in xrange(1, imgb.shape[1] - 1):
+            if imgb.item((row,col)):
+                imgt[row,col] = np.logical_not(np.all(imgb[row-1:row+2, col-1:col+2]))
+
+    return imgt
+
+def segment(imgt):
+    # attempt to cluster our boundary pixels into separate objects
+    pixels = np.transpose(np.nonzero(imgt))
+    paths = []
+
+    while pixels.size > 0:
+        path = np.asarray(dfs(imgt, pixels[0,0], pixels[0,1]))
+        path = path.reshape((path.size/2,2))
+        paths = np.vstack([paths, path])
+        pixels = np.transpose(np.nonzero(imgt))
+        
+    return paths
+
+def dfs(bitmap, row, col, visited=None):
+    # we exploit the fact that default parameters are called only once: subsequent calls will not empty visited
+    if visited is None: visited = []
+    visited.extend([row, col])
+
+    # erase pixel so it is not confused as an edge on subsequent calls and in the main loop
+    bitmap[row, col] = False
+
+    # magic number
+    origin = np.asarray([1,1])
+    # 
+    edges = np.transpose(np.nonzero(bitmap[row-1:row+2, col-1:col+2])) - origin
+    for edge in edges:
+        dfs(bitmap, row+edge[0], col+edge[1], visited)
+    return visited
+

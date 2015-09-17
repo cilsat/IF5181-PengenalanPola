@@ -18,21 +18,21 @@ def main(argv):
     #uniq = util.getunique(imgs)
     #print(uniq)
 
+    pltshow(img)
     # get and display histogram(s) of color(s)
-    hist = util.gethistogram(img)
+    #hist = util.gethistogram(img)
     #plthist(hist)
 
     # equalize image
-    imgeq = util.equalize(img, hist)
-    pltshow(img)
-    pltshow(imgeq)
+    #imgeq = util.equalize(img, hist)
+    #pltshow(imgeq)
 
     # get and display background image with dynamic threshold 15
     #background = util.getbackground(img, imgs, 15)
     #pltshow(background)
 
-    #background = util.otsu(img)
-    #pltshow(background)
+    textthin = util.thin(img)
+    pltshow(textthin)
 
 def plthist(hist):
     import matplotlib.pyplot as plt
