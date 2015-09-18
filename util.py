@@ -148,32 +148,36 @@ def thin(img):
 
     return imgt
 
-def segment(imgt):
+def segment(img):
     # attempt to cluster our boundary pixels into separate objects
+    imgt = np.copy(img)
     pixels = np.transpose(np.nonzero(imgt))
     paths = []
 
     while pixels.size > 0:
-        path = np.asarray(dfs(imgt, pixels[0,0], pixels[0,1]))
-        path = path.reshape((path.size/2,2))
-        paths = np.vstack([paths, path])
+        path = dfsi(imgt, pixels[0,0], pixels[0,1])
+        path = path.reshape((path.size/2, 2))
+        paths.append(path)
         pixels = np.transpose(np.nonzero(imgt))
         
     return paths
 
-def dfs(bitmap, row, col, visited=None):
-    # we exploit the fact that default parameters are called only once: subsequent calls will not empty visited
-    if visited is None: visited = []
-    visited.extend([row, col])
-
-    # erase pixel so it is not confused as an edge on subsequent calls and in the main loop
-    bitmap[row, col] = False
-
-    # magic number
+def dfsi(bitmap, start_row, start_col):
+    stack = []
+    stack.append(start_row)
+    stack.append(start_col)
+    path = []
     origin = np.asarray([1,1])
-    # 
-    edges = np.transpose(np.nonzero(bitmap[row-1:row+2, col-1:col+2])) - origin
-    for edge in edges:
-        dfs(bitmap, row+edge[0], col+edge[1], visited)
-    return visited
 
+    while len(stack) > 0:
+        col = stack.pop()
+        row = stack.pop()
+        bitmap[row, col] = False
+        path = np.append(path, [row, col])
+
+        edges = np.transpose(np.nonzero(bitmap[row-1:row+2, col-1:col+2])) - origin
+        for edge in edges:
+            stack.append(row+edge[0])
+            stack.append(col+edge[1])
+
+    return path
