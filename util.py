@@ -37,7 +37,7 @@ def equalize(img, hist):
 
     # if grayscale add an axis
     gs = False
-    if len(img.size) < 3:
+    if len(img.shape) < 3:
         gs = True
         img = img.reshape((img.shape[0], img.shape[1], 1))
 
@@ -134,13 +134,88 @@ def otsu(img):
     else:
         return imgg < lvl
 
+"""
+Training procedure
+Input an image. The image MUST CONTAIN all lower case letters, all upper case letters, and all digits in that order
+The procedure then detects objects and assigns them letters/digits based on this order
+"""
+def train(img):
+    thinned = thin(img)
+    objlist = segment(thinned)
+    getobjimg(objlist[0])
+    cleanobjlist = preprocess(objlist)
+    getobjimg(objlist[0])
+    
+    # assign letters to features
+    with open('train/order', 'r') as f:
+        order = f.read().replace('\n', '').split(' ')
+
+    # get full features: I WANT EM ALL
+    feats = []
+    [feats.append(freeman(obj)) for obj in cleanobjlist]
+    
+    return order, np.vstack(feats)
+
+"""
+Pre-processing
+We try to clean the objects as much as possible:
+1. Attempt to order the objects as a human would read them
+2. Merge certain objects: the dots in 'i' and 'j', the "holes" in 'a', 'o', etc
+"""
+def preprocess(objlist):
+    # get pre-features: we only need absolute centers and heights
+    feats = []
+    for obj in objlist:
+        obj = np.array(obj)
+        feats.append([obj[:,0].mean(), obj[:,1].mean(), obj[:,0].max() - obj[:,0].min()])
+
+    prefeats = np.array(feats)
+
+    # figure out where lines change:
+    # calc vertical differences between object centers
+    # if vertical difference is above a certain threshold (in this case the height of the tallest object)
+    # we can be reasonably sure that we've changed lines
+    # return the indices of new lines
+    newlines = np.argwhere(np.diff(prefeats[:,0]) > np.max(prefeats[:,2])).reshape(-1) + 1
+    print newlines.size+1
+
+    # obtain indices that would sort objects left to right for each newline
+    lines = np.split(prefeats, newlines)
+    objid = np.concatenate([np.argsort(lines[nline].T, axis=1)[1] + np.append(newlines, 0)[nline-1] for nline in xrange(len(lines))]).tolist()
+    # sort objects
+    orderedobjlist = [objlist[ind] for ind in objid]
+    # sort prefeats
+    prefeats[:] = prefeats[objid]
+
+    # we try to merge objects if they're sufficiently close (for example the dots in 'i' and 'j')
+    # here we merge objects that are 10x closer to each other than is expected
+    # 10x is completely arbitrary
+    delta = np.abs(np.diff(prefeats[:,1]))
+    mergeat = np.argwhere(delta < delta.mean()*0.1).reshape(-1).tolist()
+
+    # add "satellite" object to its "planet" object
+    for ind in mergeat:
+        orderedobjlist[ind] += orderedobjlist[ind+1]
+
+    # remove "satellite" objects from object list
+    mergedobjlist = [orderedobjlist[ind] for ind in xrange(len(orderedobjlist)) if (ind-1) not in mergeat]
+
+    return mergedobjlist
+
+"""
+Thinning
+Discard all pixels except for border pixels
+"""
 def thin(img):
     # binarize image
     imgb = otsu(img)
 
     # make copy of binarized image to store thinned image
     imgt = np.copy(imgb)
-    # obtain image containing only chain code points
+    # obtain image containing only border pixels:
+    # for each (nonzero) pixel in the image, check its neighbours
+    # if NOT ALL of its neigbours are (nonzero) pixels, then it s a border pixel
+    # if ALL of its neighbouts are (nonzero) pixels, then discard it
     for row in xrange(1, imgb.shape[0] - 1):
         for col in xrange(1, imgb.shape[1] - 1):
             if imgb.item((row,col)):
@@ -151,48 +226,135 @@ def thin(img):
 """
 Object detection
 Attempt to cluster neighbouring pixels into separate objects
+SERIOUSLY NEEDS OPTIMIZATION!
 """
 def segment(img):
     # use copy of img as we'll be eliminating elements
     imgt = np.copy(img)
-    # obtain positions of border pixels (non-zero elements)
-    pixels = np.transpose(np.nonzero(imgt))
-    paths = []
+    # obtain positions of border nonzeropix (non-zero elements)
+    nonzeropix = np.transpose(np.nonzero(imgt))
+    allobjpix = []
 
     # for all 
-    while pixels.size > 0:
-        path = dfsi(imgt, pixels[0,0], pixels[0,1])
-        paths.append(path)
-        pixels = np.transpose(np.nonzero(imgt))
+    while nonzeropix.size > 0:
+        path = dfsi(imgt, nonzeropix)
+        allobjpix.append(path)
+        nonzeropix = np.transpose(np.nonzero(imgt))
         
-    return paths
+    return allobjpix
 
 """
 Iterative depth-first search
 """
-def dfsi(bitmap, start_row, start_col):
+def dfsi(bitmap, bitmapnonzero):
     stack = []
+    start_row = bitmapnonzero.item(0, 0)
+    start_col = bitmapnonzero.item(0, 1)
+    
     stack.append(start_row)
     stack.append(start_col)
-    path = []
-    origin = np.asarray([1,1])
+    objpix = [[start_row, start_col]]
+    bitmapnonzero = np.delete(bitmapnonzero, 0)
 
     while len(stack) > 0:
         col = stack.pop()
         row = stack.pop()
         bitmap[row, col] = False
-        path = np.append(path, [row, col])
 
-        edges = np.transpose(np.nonzero(bitmap[row-1:row+2, col-1:col+2])) - origin
+        edges = np.transpose(np.nonzero(bitmap[row-1:row+2, col-1:col+2])) - [1, 1]
         for edge in edges:
-            if edge not in path:
-                stack.append(row+edge[0])
-                stack.append(col+edge[1])
+            nextrow = row+edge[0]
+            nextcol = col+edge[1]
+            if [nextrow, nextcol] not in objpix:
+                stack.append(nextrow)
+                stack.append(nextcol)
+                objpix.append([nextrow, nextcol])
 
-    return path
+    return objpix
 
-def extractfeatures(path):
-    features = np.empty((0))
-    path = path.reshape((path.size/2, 2))
-    path[:] -= [path[...,0].min(), path[...,1].min()] 
-    
+"""
+Object image
+Generates image matrix of specified object from pixel positions of object
+FOR TESTING ONLY
+"""
+def getobjimg(objpix):
+    objpix = np.asarray(objpix)
+    if objpix.min() != 0:
+        objpix[:] -= [objpix[...,0].min(), objpix[...,1].min()]
+
+    objimg = np.zeros((objpix[...,0].max()+1, objpix[...,1].max()+1), dtype = int)
+
+    for pix in objpix:
+        objimg[pix[0], pix[1]] = True
+
+    import matplotlib.pyplot as plt
+    plt.imshow(objimg)
+    plt.show()
+
+"""
+Extract Features according to UCI set
+"""
+def extractucifeatures(objpix):
+    # convert to numpy array
+    objpix = np.asarray(objpix)
+
+    y = objpix[...,0]
+    x = objpix[...,1]
+
+    ycent = y.mean()
+    xcent = x.mean()
+
+    # normalize
+    if y.min() != 0 and x.min() != 0:
+        objpix[:] -= [y.min(), x.min()]
+
+    y = objpix[...,0]
+    x = objpix[...,1]
+
+    height = y.max()
+    width = x.max()
+
+    if height == 0 or width == 0: return [None, None, None, None]
+
+    # calc ymean and xmean
+    ymean = y.mean()/height
+    xmean = x.mean()/width
+
+    # calc yvar and xvar
+    yvar = y.var()/height
+    xvar = x.var()/width
+
+    return np.array([ymean, xmean, yvar, xvar])
+
+"""
+Freeman chain encoding
+source: http://www.codeproject.com/Articles/160868/A-C-Project-in-Optical-Character-Recognition-OCR-U
+"""
+def freeman(objpix, ntracks=5, nsectors=6):
+    # convert to numpy array
+    objpix = np.asarray(objpix)
+
+    y = objpix[...,0]
+    x = objpix[...,1]
+
+    ycent = y.mean()
+    xcent = x.mean()
+
+    # normalize
+    if y.min() != 0 and x.min() != 0:
+        objpix[:] -= [y.min(), x.min()]
+
+    position = objpix - [ycent, xcent]
+    distance = np.sqrt(np.sum(np.square(position), axis=-1))
+    angles = np.tanh(np.divide(position[...,0], position[...,1]))
+
+    distmax = distance.max()
+    ftrack = distmax/ntracks
+    rtracks = np.linspace(ftrack, distmax, ntracks)
+    rsectors = np.linspace(-0.666666666667, 1, nsectors)
+
+    chaincode = np.zeros((ntracks, nsectors), dtype=int)
+    for n in xrange(objpix.shape[0]):
+        chaincode[np.nonzero(distance[n] <= rtracks)[0], np.nonzero(angles[n] <= rsectors)[0]] += 1
+
+    return chaincode
