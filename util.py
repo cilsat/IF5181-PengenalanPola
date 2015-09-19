@@ -148,20 +148,28 @@ def thin(img):
 
     return imgt
 
+"""
+Object detection
+Attempt to cluster neighbouring pixels into separate objects
+"""
 def segment(img):
-    # attempt to cluster our boundary pixels into separate objects
+    # use copy of img as we'll be eliminating elements
     imgt = np.copy(img)
+    # obtain positions of border pixels (non-zero elements)
     pixels = np.transpose(np.nonzero(imgt))
     paths = []
 
+    # for all 
     while pixels.size > 0:
         path = dfsi(imgt, pixels[0,0], pixels[0,1])
-        path = path.reshape((path.size/2, 2))
         paths.append(path)
         pixels = np.transpose(np.nonzero(imgt))
         
     return paths
 
+"""
+Iterative depth-first search
+"""
 def dfsi(bitmap, start_row, start_col):
     stack = []
     stack.append(start_row)
@@ -177,7 +185,14 @@ def dfsi(bitmap, start_row, start_col):
 
         edges = np.transpose(np.nonzero(bitmap[row-1:row+2, col-1:col+2])) - origin
         for edge in edges:
-            stack.append(row+edge[0])
-            stack.append(col+edge[1])
+            if edge not in path:
+                stack.append(row+edge[0])
+                stack.append(col+edge[1])
 
     return path
+
+def extractfeatures(path):
+    features = np.empty((0))
+    path = path.reshape((path.size/2, 2))
+    path[:] -= [path[...,0].min(), path[...,1].min()] 
+    
