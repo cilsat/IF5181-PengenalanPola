@@ -134,17 +134,41 @@ def otsu(img):
     else:
         return imgg < lvl
 
+def test(img, setname="sans"):
+    # load training features
+    trainfeats = np.fromfile('train/' + setname + '.free')
+    with open('train/' + setname + '.meta', 'r') as f:
+        featdimensions = int(f.read())
+    with open('train/order', 'r') as f:
+        chars = f.read().replace('\n','').split(' ')
+
+    trainfeats = trainfeats.reshape((trainfeats.size/(8*featdimensions**2), featdimensions, featdimensions, 8))
+
+    # process test image
+    testthin = thin(img)
+    objlist = segment(testthin)
+    cleanobjlist = preprocess(objlist)
+
+    # attempt to output a letter for each object found in test image
+    output = ""
+    for obj in cleanobjlist:
+        # extract features
+        objfeat = freeman(obj, testthin, featdimensions, featdimensions)
+        # calculate squared difference against each training feature
+        sqdiff = np.sum(np.sum(np.sum(np.square(trainfeats - objfeat), axis=-1), axis=-1), axis=-1)
+        output += chars[np.argmin(sqdiff)]
+
+    print output
+    
 """
 Training procedure
 Input an image. The image MUST CONTAIN all lower case letters, all upper case letters, and all digits in that order
 The procedure then detects objects and assigns them letters/digits based on this order
 """
-def train(img):
+def train(img, setname="sans", featdimensions=10):
     thinned = thin(img)
     objlist = segment(thinned)
-    getobjimg(objlist[0])
     cleanobjlist = preprocess(objlist)
-    getobjimg(objlist[0])
     
     # assign letters to features
     with open('train/order', 'r') as f:
@@ -152,9 +176,12 @@ def train(img):
 
     # get full features: I WANT EM ALL
     feats = []
-    [feats.append(freeman(obj)) for obj in cleanobjlist]
-    
-    return order, np.vstack(feats)
+    [feats.append(freeman(obj, thinned, featdimensions, featdimensions)) for obj in cleanobjlist]
+
+    features = np.vstack([feats])
+    features.tofile('train/' + setname + '.free')
+    with open('train/' + setname + '.meta', 'w') as f:
+        f.write(str(featdimensions))
 
 """
 Pre-processing
@@ -177,7 +204,6 @@ def preprocess(objlist):
     # we can be reasonably sure that we've changed lines
     # return the indices of new lines
     newlines = np.argwhere(np.diff(prefeats[:,0]) > np.max(prefeats[:,2])).reshape(-1) + 1
-    print newlines.size+1
 
     # obtain indices that would sort objects left to right for each newline
     lines = np.split(prefeats, newlines)
@@ -294,9 +320,9 @@ def getobjimg(objpix):
 """
 Extract Features according to UCI set
 """
-def extractucifeatures(objpix):
+def uci(objpix):
     # convert to numpy array
-    objpix = np.asarray(objpix)
+    objpix = np.array(objpix)
 
     y = objpix[...,0]
     x = objpix[...,1]
@@ -330,31 +356,45 @@ def extractucifeatures(objpix):
 Freeman chain encoding
 source: http://www.codeproject.com/Articles/160868/A-C-Project-in-Optical-Character-Recognition-OCR-U
 """
-def freeman(objpix, ntracks=5, nsectors=6):
+def freeman(objpix, img, ntracks=5, nsectors=6):
+    objimg = np.copy(img)
     # convert to numpy array
-    objpix = np.asarray(objpix)
+    objpix = np.array(objpix)
 
     y = objpix[...,0]
     x = objpix[...,1]
 
+    # normalize
+    """
+    if y.min() != 0 and x.min() != 0:
+        objpix[:] -= [y.min(), x.min()]
+    """
     ycent = y.mean()
     xcent = x.mean()
 
-    # normalize
-    if y.min() != 0 and x.min() != 0:
-        objpix[:] -= [y.min(), x.min()]
-
     position = objpix - [ycent, xcent]
     distance = np.sqrt(np.sum(np.square(position), axis=-1))
-    angles = np.tanh(np.divide(position[...,0], position[...,1]))
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        angles = np.tanh(np.true_divide(position[...,0], position[...,1]))
+        angles[angles == np.inf] = 0
+        angles = np.nan_to_num(angles)
 
     distmax = distance.max()
     ftrack = distmax/ntracks
     rtracks = np.linspace(ftrack, distmax, ntracks)
     rsectors = np.linspace(-0.666666666667, 1, nsectors)
 
-    chaincode = np.zeros((ntracks, nsectors), dtype=int)
-    for n in xrange(objpix.shape[0]):
-        chaincode[np.nonzero(distance[n] <= rtracks)[0], np.nonzero(angles[n] <= rsectors)[0]] += 1
+    chaincode = np.zeros((ntracks, nsectors, 8), dtype=int)
+    npix = objpix.shape[0]
+    for n in xrange(npix):
+        track = np.argwhere(distance[n] <= rtracks)[0]
+        sector = np.argwhere(angles[n] <= rsectors)[0]
+        row = objpix.item(n, 0)
+        col = objpix.item(n, 1)
+        relation = np.argwhere(objimg[row-1:row+2, col-1:col+2])
+        for rel in relation:
+            chaincode[track, sector, rel] += 1
 
-    return chaincode
+    return 1.0*chaincode/npix
+
