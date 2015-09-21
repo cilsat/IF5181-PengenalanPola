@@ -7,9 +7,9 @@ import util
 def main(argv):
     # load image into ndarray
     if len(argv) > 1:
-        img = mpimg.imread(argv[1])
+        testimg = mpimg.imread(argv[1])
     else:
-        img = mpimg.imread('/home/cilsat/Pictures/adidas.jpg')
+        testimg = mpimg.imread('/home/cilsat/Pictures/letitbe2.jpg')
 
     # calc sorted 2-D representation of image
     #imgs = util.sortimg(util.flattenimg(img))

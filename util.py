@@ -158,7 +158,7 @@ def test(img, setname="sans"):
         sqdiff = np.sum(np.sum(np.sum(np.square(trainfeats - objfeat), axis=-1), axis=-1), axis=-1)
         output += chars[np.argmin(sqdiff)]
 
-    print output
+    return output
     
 """
 Training procedure
