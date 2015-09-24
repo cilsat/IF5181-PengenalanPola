@@ -236,16 +236,22 @@ def thin(img):
     # binarize image
     imgb = otsu(img)
 
-    # make copy of binarized image to store thinned image
+    # copy binary image to new one that will contain our final image
     imgt = np.copy(imgb)
+
     # obtain image containing only border pixels:
-    # for each (nonzero) pixel in the image, check its neighbours
-    # if NOT ALL of its neigbours are (nonzero) pixels, then it s a border pixel
+    # for each (nonzero) pixel in the original image, check its neighbours
+    # if NOT ALL of its neigbours are (nonzero) pixels, then it's a border pixel
     # if ALL of its neighbouts are (nonzero) pixels, then discard it
+    # as we are setting pixels to zero, we need to output it to a new array: otherwise, our loop will detect false positives whenever it moves on to the next pixel
+    """
     for row in xrange(1, imgb.shape[0] - 1):
         for col in xrange(1, imgb.shape[1] - 1):
-            if imgb.item((row,col)):
-                imgt[row,col] = np.logical_not(np.all(imgb[row-1:row+2, col-1:col+2]))
+            if imgb.item(row,col):
+                imgt.itemset((row,col), np.logical_not(np.all(imgb[row-1:row+2, col-1:col+2])))
+    """
+
+    [imgt.itemset((row, col), np.logical_not(np.all(imgb[row-1:row+2, col-1:col+2]))) for row in xrange(1, imgb.shape[0] - 1) for col in xrange(1, imgb.shape[1] - 1) if imgb.item(row, col)]
 
     return imgt
 
@@ -258,14 +264,22 @@ def segment(img):
     # use copy of img as we'll be eliminating elements
     imgt = np.copy(img)
     # obtain positions of border nonzeropix (non-zero elements)
-    nonzeropix = np.transpose(np.nonzero(imgt))
+    nonzeropix = np.argwhere(imgt)
     allobjpix = []
 
-    # for all 
+    # for all nonzero pixels: for all objects
     while nonzeropix.size > 0:
-        path = dfsi(imgt, nonzeropix)
-        allobjpix.append(path)
-        nonzeropix = np.transpose(np.nonzero(imgt))
+        # when we encounter a nonzero pixel we try to trace all nonzero pixels connected to it using depth
+        # first search. in addition, this procedure erases pixels from the image once they're checked.
+        # the search returns a list of connected pixel indices: an object
+        obj = dfsi(imgt, nonzeropix)
+        # add object path to our output array
+        allobjpix += [obj]
+
+        # each time an object is identified we reevaluate the indices of nonzero pixels in our image.
+        # this is an expensive operation and should ideally be trashed: alternatively, we should delete 
+        # elements from nonzeropix directly once they've been accounted for in our dfs procedure
+        nonzeropix = np.argwhere(imgt)
         
     return allobjpix
 
@@ -273,28 +287,21 @@ def segment(img):
 Iterative depth-first search
 """
 def dfsi(bitmap, bitmapnonzero):
-    stack = []
-    start_row = bitmapnonzero.item(0, 0)
-    start_col = bitmapnonzero.item(0, 1)
+    startpixel = [bitmapnonzero.item(0, 0), bitmapnonzero.item(0, 1)]
     
-    stack.append(start_row)
-    stack.append(start_col)
-    objpix = [[start_row, start_col]]
-    bitmapnonzero = np.delete(bitmapnonzero, 0)
+    stack = [startpixel]
+    objpix = [startpixel]
 
-    while len(stack) > 0:
-        col = stack.pop()
-        row = stack.pop()
-        bitmap[row, col] = False
+    while stack:
+        row, col = stack.pop()
+        bitmap.itemset((row, col), 0)
+        edges = np.argwhere(bitmap[row-1:row+2, col-1:col+2]) - [1, 1]
 
-        edges = np.transpose(np.nonzero(bitmap[row-1:row+2, col-1:col+2])) - [1, 1]
         for edge in edges:
-            nextrow = row+edge[0]
-            nextcol = col+edge[1]
-            if [nextrow, nextcol] not in objpix:
-                stack.append(nextrow)
-                stack.append(nextcol)
-                objpix.append([nextrow, nextcol])
+            nextpixel = [row+edge[0], col+edge[1]]
+            if nextpixel not in objpix:
+                stack += [nextpixel]
+                objpix += [nextpixel]
 
     return objpix
 
@@ -374,16 +381,13 @@ def freeman(objpix, img, ntracks=5, nsectors=6):
 
     position = objpix - [ycent, xcent]
     distance = np.sqrt(np.sum(np.square(position), axis=-1))
-
-    with np.errstate(divide='ignore', invalid='ignore'):
-        angles = np.tanh(np.true_divide(position[...,0], position[...,1]))
-        angles[angles == np.inf] = 0
-        angles = np.nan_to_num(angles)
+    angles = np.arctan2(position[...,0], position[...,1])/np.pi
 
     distmax = distance.max()
     ftrack = distmax/ntracks
     rtracks = np.linspace(ftrack, distmax, ntracks)
-    rsectors = np.linspace(-0.666666666667, 1, nsectors)
+    fsector = 2.0/nsectors - 1
+    rsectors = np.linspace(fsector, 1, nsectors)
 
     chaincode = np.zeros((ntracks, nsectors, 8), dtype=int)
     npix = objpix.shape[0]

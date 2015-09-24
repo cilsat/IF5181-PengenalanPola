@@ -39,8 +39,7 @@ def main(argv):
     util.train(fontimg, font)
 
     # testing: this is only around 50% accurate for text of different font
-    testimg = mpimg.imread('/home/cilsat/Pictures/letitbe2.jpg')
-    util.test(testimg, font)
+    print util.test(testimg, font)
 
 def plthist(hist):
     import matplotlib.pyplot as plt
