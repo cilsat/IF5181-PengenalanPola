@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 def flattenimg(img):
     # reshape to 2-D
@@ -134,13 +135,24 @@ def otsu(img):
     else:
         return imgg < lvl
 
+def binarize(img):
+    return getgrayscale(img) < 128
+
+"""
+Testing procedure
+1. Load training data
+2. Process input test data: obtain features of each object we want to identify
+3. Predict each object using a specified method
+"""
 def test(img, setname="sans"):
     # load training features
     trainfeats = np.fromfile('train/' + setname + '.free')
     with open('train/' + setname + '.meta', 'r') as f:
         featdimensions = int(f.read())
     with open('train/order', 'r') as f:
-        chars = f.read().replace('\n','').split(' ')
+        chars = f.read().replace('\n', '')
+
+    print chars
 
     trainfeats = trainfeats.reshape((trainfeats.size/(8*featdimensions**2), featdimensions, featdimensions, 8))
 
@@ -172,13 +184,14 @@ def train(img, setname="sans", featdimensions=10):
     
     # assign letters to features
     with open('train/order', 'r') as f:
-        order = f.read().replace('\n', '').split(' ')
+        order = f.read().replace('\n', '')
 
     # get full features: I WANT EM ALL
     feats = []
     [feats.append(freeman(obj, thinned, featdimensions, featdimensions)) for obj in cleanobjlist]
-
     features = np.vstack([feats])
+
+    # write to external file so we don't need to retrain each time we attempt to recognize a font
     features.tofile('train/' + setname + '.free')
     with open('train/' + setname + '.meta', 'w') as f:
         f.write(str(featdimensions))
@@ -200,10 +213,10 @@ def preprocess(objlist):
 
     # figure out where lines change:
     # calc vertical differences between object centers
-    # if vertical difference is above a certain threshold (in this case the height of the tallest object)
+    # if vertical difference is above a certain threshold (in this case the mean height of objects)
     # we can be reasonably sure that we've changed lines
     # return the indices of new lines
-    newlines = np.argwhere(np.diff(prefeats[:,0]) > np.max(prefeats[:,2])).reshape(-1) + 1
+    newlines = np.argwhere(np.diff(prefeats[:,0]) > np.mean(prefeats[:,2])).reshape(-1) + 1
 
     # obtain indices that would sort objects left to right for each newline
     lines = np.split(prefeats, newlines)
@@ -234,7 +247,7 @@ Discard all pixels except for border pixels
 """
 def thin(img):
     # binarize image
-    imgb = otsu(img)
+    imgb = binarize(img)
 
     # copy binary image to new one that will contain our final image
     imgt = np.copy(imgb)
@@ -363,26 +376,34 @@ def uci(objpix):
 Freeman chain encoding
 source: http://www.codeproject.com/Articles/160868/A-C-Project-in-Optical-Character-Recognition-OCR-U
 """
-def freeman(objpix, img, ntracks=5, nsectors=6):
+def freeman(objpixels, img, ntracks=5, nsectors=6):
+    # copy image so we don't end up overwriting it
+    # (this isn't actually necessary)
     objimg = np.copy(img)
+
     # convert to numpy array
-    objpix = np.array(objpix)
+    objpix = np.array(objpixels)
 
-    y = objpix[...,0]
-    x = objpix[...,1]
+    # get coordinates of center of mass of object
+    ycent = objpix[...,0].mean()
+    xcent = objpix[...,1].mean()
 
-    # normalize
-    """
-    if y.min() != 0 and x.min() != 0:
-        objpix[:] -= [y.min(), x.min()]
-    """
-    ycent = y.mean()
-    xcent = x.mean()
-
+    # generate two arrays containing the distance and angle of each pixel relative to center of mass
+    # get array of positions of all pixels relative to center of mass
+    # this is a separate step cos we'll be reusing the position array
     position = objpix - [ycent, xcent]
+
+    # get array of distances: distance is calculated through pythagoras' formula for triangles
     distance = np.sqrt(np.sum(np.square(position), axis=-1))
+
+    # get array of angles: angle is obtained by calculating the inverse tanget of the y position against the x position
+    # we need to consider the possibility of negative positions, hence we use the arctan2 numpy function
+    # the output of arctan2 is [-pi, pi], so we divide this by pi to get the range [-1, 1]
     angles = np.arctan2(position[...,0], position[...,1])/np.pi
 
+    # now we virtually "divide" our object into separate tracks and sectors
+    # pixels are separated into different tracks based on their distance from the center
+    # pixels are separated into different sectors based on the angle relative to the center
     distmax = distance.max()
     ftrack = distmax/ntracks
     rtracks = np.linspace(ftrack, distmax, ntracks)
@@ -396,9 +417,30 @@ def freeman(objpix, img, ntracks=5, nsectors=6):
         sector = np.argwhere(angles[n] <= rsectors)[0]
         row = objpix.item(n, 0)
         col = objpix.item(n, 1)
-        relation = np.argwhere(objimg[row-1:row+2, col-1:col+2])
+        # find neighbouring pixels, and figure out which of them are nonzero
+        relation = np.argwhere(np.delete(objimg[row-1:row+2, col-1:col+2].reshape(-1), 4))[:,0]
         for rel in relation:
             chaincode[track, sector, rel] += 1
 
-    return 1.0*chaincode/npix
+    pernpix = 1.0/npix
+
+    return chaincode*pernpix
+
+"""
+Gaussian Naive Bayes: continuous version of Naive Bayes classifier
+Recall that Naive Bayes states that P(A|B) = P(A)*P(B|A)/P(B)
+For the continuous version, each random variable (feature) is assumed to be independent and distributed normally
+
+A "feature" is equvalent to an "attribute" or "random variable" in this case. For freeman chain encoding,
+a feature is the value contained in a single field of our track x sector x direction matrix.
+
+"Features" refers to the collection of features for a single instance of an output class, for instance the
+features of the output class "z" for a font "dejavusans".
+
+A collection of all the features for all output classes is a "feature set", 
+
+We define a "training set" to be a collection of feature sets with each output class represented equally.
+"""
+def gnb_train(feats, chars):
+    pdfeats = pd.Series(feats, index=[char for char in chars])
 
