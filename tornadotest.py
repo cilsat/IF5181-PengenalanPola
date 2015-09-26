@@ -21,15 +21,6 @@ def main():
     http_server.listen(8080)
     tornado.ioloop.IOLoop.instance().start()
 
-    # Load training data
-    font = "dejavusans-alphanumeric"
-    fontimg = mpimg.imread('train/' + font + '.jpg')
-    util.train(fontimg, font)
-
-    # Generate hypothesis
-    testimg = mpimg.imread('/home/cilsat/Pictures/letitbe2.jpg')
-    util.test(testimg, font)
-
 class Application(tornado.web.Application):
     def __init__(self):
         handlers = [
