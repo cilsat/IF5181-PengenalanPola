@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 
 def flattenimg(img):
     # reshape to 2-D
@@ -443,6 +442,3 @@ A collection of all the features for all output classes is a "feature set",
 
 We define a "training set" to be a collection of feature sets with each output class represented equally.
 """
-def gnb_train(feats, chars):
-    pdfeats = pd.Series(feats, index=[char for char in chars])
-
