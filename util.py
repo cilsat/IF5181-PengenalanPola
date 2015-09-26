@@ -95,7 +95,8 @@ def getbackground(img, imgs, thrs=10):
 
     return back
 
-""" applies otsu's automatic thresholding algorithm to separate
+""" 
+    applies otsu's automatic thresholding algorithm to separate
     background and foreground:
     1. Compute histogram and probabilities of intensity levels
     2. Initialize wb and mb
@@ -430,10 +431,11 @@ def freeman(objpixels, img, ntracks=5, nsectors=6):
 Gaussian Naive Bayes: continuous version of Naive Bayes classifier
 Recall that Naive Bayes states that P(A|B) = P(A)*P(B|A)/P(B)
 For the continuous version, each random variable (feature) is assumed to be independent and distributed normally
+We are trying to achieve the (accurate) classification/prediction of the class of an object. In OCR, an "object" will be a collection of connected pixels and "class" a character ('a', '3', '@', etc).
 
 A "feature" is equvalent to an "attribute" or "random variable" in this case. For freeman chain encoding,
 a feature is the value contained in a single field of our track x sector x direction matrix.
-
+A complete collection of the features of 
 "Features" refers to the collection of features for a single instance of an output class, for instance the
 features of the output class "z" for a font "dejavusans".
 
