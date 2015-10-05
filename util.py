@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 
 def flattenimg(img):
     # reshape to 2-D
@@ -30,10 +31,13 @@ def gethistogram(img):
     return hist
 """
 
-def equalize(img, hist):
+def equalize(img):
     # generate lookup table(s)
     imgsize = img.shape[0]*img.shape[1]
     lut = []
+
+    # generate histogram
+    hist = gethistogram(img)
 
     # if grayscale add an axis
     gs = False
@@ -67,7 +71,8 @@ def getgrayscale(img):
     # of colors
     if img.dtype == "float32":
         img[:] = np.asarray(img*255, dtype=np.uint8)
-    return np.asarray(np.sum(img,axis=-1)/img.shape[-1], dtype=np.uint8)
+
+    return np.asarray((0.29*img[...,0] + 0.59*img[...,1] + 0.11*img[...,2])/3, dtype=np.uint8)
 
 def getunique(imgs):
     # detect unique colors:
@@ -94,6 +99,72 @@ def getbackground(img, imgs, thrs=10):
 
     return back
 
+def convolve(filt, source):
+    return np.fft.irfft2(np.fft.rfft2(source) * np.fft.rfft2(filt, source.shape)).astype(source.dtype)
+
+def gaussian_filt(shape=(3,3), sigma=0.5):
+    m, n = [(ss-1.)/2. for ss in shape]
+    y,x = np.ogrid[m-1:m+2, n-1:n+2]
+
+    h = np.exp( -(x*x + y*y) / (2.*sigma*sigma) )
+    h[h <  np.finfo(h.dtype).eps*h.max()] = 0
+    sumh = h.sum()
+    if sumh != 0:
+        h /= sumh
+
+    return h
+
+"""
+turn into grayscale, equalize, threshold
+"""
+def binarize(img):
+    # grayscale conversion
+    gs = np.asarray((0.2989*img[...,0] + 0.5870*img[...,1] + 0.1140*img[...,2]), dtype=np.uint8)
+    
+    # gaussian filter
+    gauss = gaussian_filt((20,20), 1.0)
+    pass1 = convolve(gauss, gs)
+
+    # histogram and cumulative sum
+    hist = np.histogram(pass1, bins=256)[0]
+    cdf = hist.cumsum()
+
+    # equalize
+    cdfmin = 0
+    while cdf.item(cdfmin) == 0: cdfmin += 1
+    lut = (cdf - cdfmin)*255/(gs.size - cdfmin)
+    eq = np.uint8(lut[pass1])
+
+    # gaussian filter
+    pass2 = convolve(gauss, gs)
+
+    # histogram and cumulative sum
+    hist = np.histogram(pass2, bins=256)[0]
+    cdf = hist.cumsum()
+
+    # otsu threshold
+    sumlist = hist*np.arange(256)
+    sumtot = np.sum(sumlist)
+    sumcum = sumlist.cumsum()
+    tot = gs.size
+
+    wf = tot - cdf
+    mb = sumcum/cdf
+    mf = (sumtot - sumcum)/wf
+    thr = cdf*wf*np.square(mb-mf)
+
+    """
+    for n in xrange(cdfmin, 256):
+        wb = cdf.item(n)
+        wf = tot - wb
+        if wf == 0: break
+        sumb = sumcum.item(n)
+        mb = 1.0*sumb/wb
+        mf = 1.0*(sumtot - sumb)/wf
+        thr.append(wb*wf*(mb-mf)**2)
+    """
+    return pass2 < np.argmax(thr) + 1
+
 """ 
     applies otsu's automatic thresholding algorithm to separate
     background and foreground:
@@ -108,9 +179,9 @@ def otsu(img):
     # compute grayscale version of image
     imgg = getgrayscale(img)
     # compute histogram and probabilities
-    hist = np.histogram(imgg,bins=255)[0]
+    hist = np.histogram(imgg,bins=256)[0]
     # compute sum
-    sum = np.sum(hist*xrange(255)) 
+    sum = hist*xrange(255)
     # initialize loop variables
     wb = 0
     sumb = 0
@@ -135,9 +206,6 @@ def otsu(img):
     else:
         return imgg < lvl
 
-def binarize(img):
-    return getgrayscale(img) < 128
-
 """
 Testing procedure
 1. Load training data
@@ -152,14 +220,13 @@ def test(img, setname="sans"):
     with open('train/order', 'r') as f:
         chars = f.read().replace('\n', '')
 
-    print chars
-
     trainfeats = trainfeats.reshape((trainfeats.size/(8*featdimensions**2), featdimensions, featdimensions, 8))
 
     # process test image
     testthin = thin(img)
     objlist = segment(testthin)
     cleanobjlist = preprocess(objlist)
+    print len(cleanobjlist)
 
     # attempt to output a letter for each object found in test image
     output = ""
@@ -174,13 +241,15 @@ def test(img, setname="sans"):
     
 """
 Training procedure
+Essentially this is the process of labelling our training data
 Input an image. The image MUST CONTAIN all lower case letters, all upper case letters, and all digits in that order
-The procedure then detects objects and assigns them letters/digits based on this order
+The procedure then detects objects and assigns them letters/digits ("labels") based on this order
 """
 def train(img, setname="sans", featdimensions=10):
     thinned = thin(img)
     objlist = segment(thinned)
     cleanobjlist = preprocess(objlist)
+    print len(cleanobjlist)
     
     # assign letters to features
     with open('train/order', 'r') as f:
@@ -190,6 +259,8 @@ def train(img, setname="sans", featdimensions=10):
     feats = []
     [feats.append(freeman(obj, thinned, featdimensions, featdimensions)) for obj in cleanobjlist]
     features = np.vstack([feats])
+
+    #gnb_train(features)
 
     # write to external file so we don't need to retrain each time we attempt to recognize a font
     features.tofile('train/' + setname + '.free')
@@ -203,13 +274,17 @@ We try to clean the objects as much as possible:
 2. Merge certain objects: the dots in 'i' and 'j', the "holes" in 'a', 'o', etc
 """
 def preprocess(objlist):
-    # get pre-features: we only need absolute centers and heights
+    # get pre-features: we need absolute centers and heights, absolute top, and size of objects
     feats = []
     for obj in objlist:
         obj = np.array(obj)
-        feats.append([obj[:,0].mean(), obj[:,1].mean(), obj[:,0].max() - obj[:,0].min()])
+        feats.append([obj[:,0].mean(), obj[:,1].mean(), obj[:,0].max() - obj[:,0].min(), obj[:,0].min(), obj.size])
 
     prefeats = np.array(feats)
+
+    # get tree of nested objects (objects inside other objects)
+    # sort objects by size in descending order, as we'll assume larger objects are more likely to contain other objects
+    argbysize = prefeats[:,-1].argsort()[::-1]
 
     # figure out where lines change:
     # calc vertical differences between object centers
@@ -248,7 +323,6 @@ Discard all pixels except for border pixels
 def thin(img):
     # binarize image
     imgb = binarize(img)
-
     # copy binary image to new one that will contain our final image
     imgt = np.copy(imgb)
 
@@ -257,14 +331,17 @@ def thin(img):
     # if NOT ALL of its neigbours are (nonzero) pixels, then it's a border pixel
     # if ALL of its neighbouts are (nonzero) pixels, then discard it
     # as we are setting pixels to zero, we need to output it to a new array: otherwise, our loop will detect false positives whenever it moves on to the next pixel
-    """
+    sub = np.zeros((3,3), dtype=bool)
+
     for row in xrange(1, imgb.shape[0] - 1):
         for col in xrange(1, imgb.shape[1] - 1):
             if imgb.item(row,col):
-                imgt.itemset((row,col), np.logical_not(np.all(imgb[row-1:row+2, col-1:col+2])))
-    """
+                sub[:] = imgb[row-1:row+2, col-1:col+2]
+                imgt.itemset((row,col), np.logical_not(np.all(sub)))
 
+    """
     [imgt.itemset((row, col), np.logical_not(np.all(imgb[row-1:row+2, col-1:col+2]))) for row in xrange(1, imgb.shape[0] - 1) for col in xrange(1, imgb.shape[1] - 1) if imgb.item(row, col)]
+    """
 
     return imgt
 
@@ -276,8 +353,9 @@ SERIOUSLY NEEDS OPTIMIZATION!
 def segment(img):
     # use copy of img as we'll be eliminating elements
     imgt = np.copy(img)
+    imgtb = imgt[1:-1, 1:-1]
     # obtain positions of border nonzeropix (non-zero elements)
-    nonzeropix = np.argwhere(imgt)
+    nonzeropix = np.argwhere(imgtb) + np.ones((1,1))
     allobjpix = []
 
     # for all nonzero pixels: for all objects
@@ -287,12 +365,13 @@ def segment(img):
         # the search returns a list of connected pixel indices: an object
         obj = dfsi(imgt, nonzeropix)
         # add object path to our output array
-        allobjpix += [obj]
+        if len(obj) > 50:
+            allobjpix += [obj]
 
         # each time an object is identified we reevaluate the indices of nonzero pixels in our image.
         # this is an expensive operation and should ideally be trashed: alternatively, we should delete 
         # elements from nonzeropix directly once they've been accounted for in our dfs procedure
-        nonzeropix = np.argwhere(imgt)
+        nonzeropix = np.argwhere(imgtb) + np.ones((1,1))
         
     return allobjpix
 
@@ -376,7 +455,7 @@ def uci(objpix):
 Freeman chain encoding
 source: http://www.codeproject.com/Articles/160868/A-C-Project-in-Optical-Character-Recognition-OCR-U
 """
-def freeman(objpixels, img, ntracks=5, nsectors=6):
+def freeman(objpixels, img, ntracks=5, nsectors=5):
     # copy image so we don't end up overwriting it
     # (this isn't actually necessary)
     objimg = np.copy(img)
@@ -429,8 +508,8 @@ def freeman(objpixels, img, ntracks=5, nsectors=6):
 """
 Gaussian Naive Bayes: continuous version of Naive Bayes classifier
 Recall that Naive Bayes states that P(A|B) = P(A)*P(B|A)/P(B)
-For the continuous version, each random variable (feature) is assumed to be independent and distributed normally
-We are trying to achieve the (accurate) classification/prediction of the class of an object. In OCR, an "object" will be a collection of connected pixels and "class" a character ('a', '3', '@', etc).
+For the continuous version, each random variable/feature/attribute is assumed to be independent and distributed normally.
+We are trying to achieve the (accurate) classification/prediction of the class of an object. In OCR, an "object" will be a collection of connected pixels and "class" a character we want to be able to predict ('a', '3', '@', etc); in other words we want to input a bunch of pixels and output a character.
 
 A "feature" is equvalent to an "attribute" or "random variable" in this case. For freeman chain encoding,
 a feature is the value contained in a single field of our track x sector x direction matrix.
@@ -442,3 +521,37 @@ A collection of all the features for all output classes is a "feature set",
 
 We define a "training set" to be a collection of feature sets with each output class represented equally.
 """
+def gnb_train():
+    import os
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import matplotlib.image as mpimg
+    import util
+
+    ntracks, nsectors = 5, 5
+
+    with open('train/order', 'r') as f:
+        char = f.read().replace('\n', '')
+        
+    iter = pd.MultiIndex.from_product([[c for c in char], range(ntracks*nsectors*8)])
+
+    files = [file for file in os.listdir('train') if file.startswith('font')]
+    data = []
+
+    for file in files:
+        print file
+        img = mpimg.imread('train/'+file)
+        thin = util.thin(img)
+        obj = util.preprocess(util.segment(thin))
+        feats = []
+        [feats.append(util.freeman(o, thin).reshape(-1)) for o in obj]
+        pdfeats = pd.DataFrame(np.vstack([feats]).reshape((1,7200)), index=[file], columns=iter)
+        data.append(pdfeats)
+
+    df = pd.concat(data)
+
+    return True
+
+def gnb_predict(feats):
+    return True
