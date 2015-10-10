@@ -9,7 +9,7 @@ def main(argv):
     if len(argv) > 1:
         testimg = mpimg.imread(argv[1])
     else:
-        testimg = mpimg.imread('/home/cilsat/Pictures/letitbe2.jpg')
+        testimg = mpimg.imread('/home/cilsat/Dropbox/kuliah/sem1/pp/train/gnb/plat/1e18d1bebafc0f94110972e2dd546db8_gallery.jpg')
 
     # calc sorted 2-D representation of image
     #imgs = util.sortimg(util.flattenimg(img))
@@ -34,12 +34,18 @@ def main(argv):
     # OCR
     # training: only need to run ONCE for each font
     # make sure you have an image containing all lower case letters, upper case letters, and digits in that order
+    """
     font = "dejavusans-alphanumeric"
     fontimg = mpimg.imread('train/' + font + '.jpg')
     util.train(fontimg, font)
 
     # testing: this is only around 50% accurate for text of different font
     print util.test(testimg, font)
+    """
+
+    # License Plate recognition
+    dataset = "plat"
+    util.gnb_train(dataset=dataset)
 
 def plthist(hist):
     import matplotlib.pyplot as plt
