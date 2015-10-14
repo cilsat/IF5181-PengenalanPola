@@ -1,9 +1,26 @@
 import numpy as np
 import pandas as pd
 
+"""
+Dokumentasi
+- teori: link/hubungan antara konsep
+- konsep: objek yang terlibat dalam suatu teori
+- contoh run
+
+yang perlu dikerjain:
+    histogram
+    pre-processing = noise reduction + equalizatioin + binarization + segmentation + clustering
+    recognition = feature extraction + kNN + GNB
+    chaincode
+    kode belok
+    recognition w/ cc+kb
+    skeletonize
+    recognition w/ skeleton
+"""
+
 def flattenimg(img):
     # reshape to 2-D
-    return  img.reshape(-1, img.shape[-1])
+    return img.reshape(-1, img.shape[-1])
 
 def sortimg(img):
     # obtain indices of a sorted matrix
@@ -114,6 +131,13 @@ def gaussian_filt(shape=(3,3), sigma=0.5):
 
     return h
 
+def downsample(img, target_height=320):
+    if img.shape[0] < 320/2:
+        return img
+    else:
+        return img
+
+
 """
 turn into grayscale, equalize, threshold
 """
@@ -217,10 +241,9 @@ def zhangsuen(obj, img):
     list = np.array([o for o in obj if o[0] > 1 and o[0] < imgt.shape[0]-1 and o[1] > 1 and o[1] < imgt.shape[1]-1])
 
     # initialize dummy value for mark_for_deletion list to get while loop going
-    manrk_for_deletion = [0]
+    mark_for_deletion = [0]
 
     while mark_for_deletion:
-        old_list = np.copy(list)
         mark_for_deletion = []
 
         """
@@ -229,14 +252,13 @@ def zhangsuen(obj, img):
         for npix in xrange(list.shape[0]):
             # array of circling neighbours
             pix = list[npix,:]
-            sub = np.hstack([imgt[pix[0]-1, pix[1]-1 : pix[1]+2], imgt[pix[0], pix[1]+1], imgt[pix[0]+1, pix[1]-1 : pix[1]+2][::-1], imgt[pix[0], pix[1]-1], imgt[pix[0]-1, pix[1]-1]])
+            sub = np.array([imgt.item(pix[0]-1, pix[1]-1), imgt.item(pix[0]-1, pix[1]), imgt.item(pix[0]-1, pix[1]+1), imgt.item(pix[0], pix[1]+1), imgt.item(pix[0]+1, pix[1]+1), imgt.item(pix[0]+1, pix[1]), imgt.item(pix[0]+1, pix[1]-1), imgt.item(pix[0], pix[1]-1)])
 
             # if a pixel satisfies these conditions then mark it for deletion
-            if (np.sum(sub) >= 2 and
-                np.sum(sub) <= 6 and
-                np.sum(np.diff(sub)) == 2 and 
-                np.any(np.logical_not([sub.item(1), sub.item(3), sub.item(5)])) and 
-                np.any(np.logical_not([sub.item(3), sub.item(5), sub.item(7)]))):
+            if (2 <= np.sum(sub) <= 6 and
+                np.sum(np.diff(sub)) <= 2 and 
+                not (sub.item(1) and sub.item(3) and sub.item(5)) and 
+                not (sub.item(3) and sub.item(5) and sub.item(7))):
                 mark_for_deletion.append(npix)
 
         # erase marked pixels from image
@@ -251,19 +273,18 @@ def zhangsuen(obj, img):
         """
         for npix in xrange(list.shape[0]):
             pix = list[npix,:]
-            sub = np.hstack([imgt[pix[0]-1, pix[1]-1 : pix[1]+2], imgt[pix[0], pix[1]+1], imgt[pix[0]+1, pix[1]-1 : pix[1]+2][::-1], imgt.item(pix[0], pix[1]-1), imgt.item(pix[0]-1, pix[1]-1)])
+            sub = np.array([imgt.item(pix[0]-1, pix[1]-1), imgt.item(pix[0]-1, pix[1]), imgt.item(pix[0]-1, pix[1]+1), imgt.item(pix[0], pix[1]+1), imgt.item(pix[0]+1, pix[1]+1), imgt.item(pix[0]+1, pix[1]), imgt.item(pix[0]+1, pix[1]-1), imgt.item(pix[0], pix[1]-1)])
 
-            if (np.sum(sub) >= 2 and 
-                np.sum(sub) <= 6 and 
-                np.sum(np.diff(sub)) == 2 and 
-                np.any(np.logical_not([sub.item(1), sub.item(3), sub.item(7)])) and 
-                np.any(np.logical_not([sub.item(1), sub.item(5), sub.item(7)]))):
+            if (2 <= np.sum(sub) <= 6 and
+                np.sum(np.diff(sub)) <= 2 and 
+                not (sub.item(1) and sub.item(3) and sub.item(7)) and 
+                not (sub.item(1) and sub.item(5) and sub.item(7))):
                 mark_for_deletion.append(npix)
                 
         [imgt.itemset((list[n,0], list[n,1]), False) for n in mark_for_deletion]
         list = np.array([list[n] for n in xrange(list.shape[0]) if n not in mark_for_deletion])
 
-    return list
+    return list, imgt
 
 """
 Testing procedure
@@ -417,6 +438,8 @@ def segment(img):
     nonzeropix = np.argwhere(imgtb) + np.ones((1,1), dtype=np.uint8)
     allobjpix = []
 
+    imgh = imgt.shape[0]*0.1
+
     # for all nonzero pixels: for all objects
     while nonzeropix.size > 0:
         # when we encounter a nonzero pixel we try to trace all nonzero pixels connected to it using depth
@@ -424,7 +447,7 @@ def segment(img):
         # the search returns a list of connected pixel indices: an object
         obj = dfsi(imgt, nonzeropix)
         # add object path to our output array
-        if len(obj) > 50:
+        if len(obj) > imgh:
             allobjpix += [obj]
 
         # each time an object is identified we reevaluate the indices of nonzero pixels in our image.
@@ -583,7 +606,7 @@ A collection of all the features for all output classes is a "feature set",
 
 We define a "training set" to be a collection of feature sets with each output class represented equally.
 """
-def gnb_train(dataset='plat'):
+def gnb_train(dataset='plat', feature_extraction='skeleton'):
     import os
     import matplotlib.image as mpimg
 
@@ -596,18 +619,26 @@ def gnb_train(dataset='plat'):
     data = []
 
     # pandas: this specifies a multiindex from the combination of training labels and features
-    ntracks, nsectors = 5, 5
+    ntracks, nsectors = 3, 3
     iter = pd.MultiIndex.from_product([[c for c in char], range(ntracks*nsectors*8)])
 
     # for each training instance we obtain the individual objects and extract features
     for file in files:
         print file
         img = mpimg.imread('train/gnb/'+ dataset + '/' + file)
-        thinned = thin(img)
+
+        if feature_extraction == 'skeleton':
+            bin = binarize(img, bg='light')
+            pix, thinned = zhangsuen(np.argwhere(bin), bin)
+
+        elif feature_extraction == 'skin':
+            thinned = thin(img, bg='light')
+
         obj = preprocess(segment(thinned))
         feats = []
-        [feats.append(freeman(o, thinned).reshape(-1)) for o in obj]
-        pdfeats = pd.DataFrame(np.vstack([feats]).reshape((1,7200)), index=[file], columns=iter)
+        [feats.append(freeman(o, thinned, ntracks, nsectors).reshape(-1)) for o in obj]
+        print len(feats)
+        pdfeats = pd.DataFrame(np.vstack([feats]).reshape((1, len(obj)*ntracks*nsectors*8)), index=[file], columns=iter)
         data.append(pdfeats)
 
     # collect features for all training instances and pickle
@@ -618,14 +649,29 @@ def gnb_train(dataset='plat'):
     pars = pd.concat((df.mean(), df.var()), axis=1).T
     pars.to_pickle('train/gnb/model/plat_pars')
 
-def gnb_predict(img, dataset='plat'):
+def gnb_predict(img, bg='light', dataset='plat', feature_extraction='skeleton'):
     pars = pd.read_pickle('train/gnb/model/' + dataset + '_pars')
-    thin = thin(mpimg.imread(img))
-    obj = preprocess(segment(thin))
+    ntracks, nsectors = 3, 3
+
+    if feature_extraction == 'skeleton':
+        bin = binarize(img, bg)
+        npix = np.argwhere(bin)
+        print npix.shape[0]
+        pix, thinned = zhangsuen(npix, bin)
+
+    elif feature_extraction == 'skin':
+        thinned = thin(img, bg)
+
+    obj = preprocess(segment(thinned))
     feats = []
-    [feats.append(freeman(o, thin).reshape(-1)) for o in obj]
+    [feats.append(freeman(o, thinned, ntracks, nsectors).reshape(-1)) for o in obj]
     feats = np.vstack([feats])
 
-    prob = np.exp(-0.5*np.square(feats - pars['mean'])/pars['var'])/np.sqrt(2*np.pi*par['var'])
+    string = ""
+    for f in feats:
+        prob = []
+        [prob.append(np.exp(-0.5*np.square(f - pars.loc[0,c])/pars.loc[1,c])/np.sqrt(2*np.pi*pars.loc[1,c])) for c in pars.columns.levels[0]]
+        arghyp = np.argmax([np.prod(p) for p in prob])
+        string += pars.columns.levels[0][arghyp]
 
-    return True
+    return string
