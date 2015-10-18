@@ -135,8 +135,13 @@ def downsample(img, target_height=320):
     if img.shape[0] < 320/2:
         return img
     else:
-        return img
+        import scipy.ndimage as scimg
+        
+        if len(img.shape) == 3:
+            ratio = 500000./img.size
+            return scimg.zoom(img, (ratio, ratio, 1))
 
+    return
 
 """
 turn into grayscale, equalize, threshold
@@ -146,21 +151,23 @@ def binarize(img, bg='dark'):
     gs = np.asarray((0.2989*img[...,0] + 0.5870*img[...,1] + 0.1140*img[...,2]), dtype=np.uint8)
     
     # gaussian filter
-    gauss = gaussian_filt((20,20), 1.0)
+    gauss = gaussian_filt()
     pass1 = convolve(gauss, gs)
 
     # histogram and cumulative sum
     hist = np.histogram(pass1, bins=256)[0]
     cdf = hist.cumsum()
 
+    """
     # equalize
     cdfmin = 0
     while cdf.item(cdfmin) == 0: cdfmin += 1
     lut = (cdf - cdfmin)*255/(gs.size - cdfmin)
     eq = np.uint8(lut[pass1])
+    """
 
     # gaussian filter
-    pass2 = convolve(gauss, gs)
+    pass2 = convolve(gauss, pass1)
 
     # histogram and cumulative sum
     hist = np.histogram(pass2, bins=256)[0]
@@ -170,7 +177,7 @@ def binarize(img, bg='dark'):
     sumlist = hist*np.arange(256)
     sumtot = np.sum(sumlist)
     sumcum = sumlist.cumsum()
-    tot = gs.size
+    tot = pass2.size
 
     wf = tot - cdf
     mb = sumcum/cdf
@@ -264,7 +271,7 @@ def zhangsuen(obj, img):
         # erase marked pixels from image
         [imgt.itemset((list[n,0], list[n,1]), False) for n in mark_for_deletion]
         # erase marked pixels from list of non-zero pixels
-        list = np.array([list[n] for n in xrange(list.shape[0]) if n not in mark_for_deletion])
+        list = np.delete(list, mark_for_deletion, axis=0)
         # begin anew
         mark_for_deletion = []
 
@@ -282,7 +289,7 @@ def zhangsuen(obj, img):
                 mark_for_deletion.append(npix)
                 
         [imgt.itemset((list[n,0], list[n,1]), False) for n in mark_for_deletion]
-        list = np.array([list[n] for n in xrange(list.shape[0]) if n not in mark_for_deletion])
+        list = np.delete(list, mark_for_deletion, axis=0)
 
     return list, imgt
 
@@ -441,11 +448,11 @@ def segment(img):
     imgh = imgt.shape[0]*0.1
 
     # for all nonzero pixels: for all objects
-    while nonzeropix.size > 0:
+    while np.any(imgt):
         # when we encounter a nonzero pixel we try to trace all nonzero pixels connected to it using depth
         # first search. in addition, this procedure erases pixels from the image once they're checked.
         # the search returns a list of connected pixel indices: an object
-        obj = dfsi(imgt, nonzeropix)
+        obj, imgt = dfsi(imgt)
         # add object path to our output array
         if len(obj) > imgh:
             allobjpix += [obj]
@@ -453,15 +460,26 @@ def segment(img):
         # each time an object is identified we reevaluate the indices of nonzero pixels in our image.
         # this is an expensive operation and should ideally be trashed: alternatively, we should delete 
         # elements from nonzeropix directly once they've been accounted for in our dfs procedure
-        nonzeropix = np.argwhere(imgtb) + np.ones((1,1), dtype=np.uint8)
+        #nonzeropix = np.argwhere(imgtb) + np.ones((1,1), dtype=np.uint8)
         
     return allobjpix
 
 """
 Iterative depth-first search
 """
-def dfsi(bitmap, bitmapnonzero):
-    startpixel = [bitmapnonzero.item(0, 0), bitmapnonzero.item(0, 1)]
+def dfsi(bitmap):
+    #startpixel = [bitmapnonzero.item(0, 0), bitmapnonzero.item(0, 1)]
+
+    startrow = 0
+    while True:
+        scanline = bitmap[startrow, :]
+        if np.any(scanline):
+            startcol = np.argwhere(scanline)[0, 0]
+            break
+        startrow += 1
+
+    startpixel = [startrow, startcol]
+    #print startpixel
     
     stack = [startpixel]
     objpix = [startpixel]
@@ -470,7 +488,6 @@ def dfsi(bitmap, bitmapnonzero):
     while stack:
         row, col = stack.pop()
         if row == 0 or col == 0: bound = True
-        bitmap.itemset((row, col), 0)
         edges = np.argwhere(bitmap[row-1:row+2, col-1:col+2]) - [1, 1]
 
         for edge in edges:
@@ -479,8 +496,10 @@ def dfsi(bitmap, bitmapnonzero):
                 stack += [nextpixel]
                 objpix += [nextpixel]
 
-    if bound: return []
-    else: return objpix
+    [bitmap.itemset((pix[0], pix[1]), False) for pix in objpix]
+
+    if bound: return [], bitmap
+    else: return objpix, bitmap
 
 """
 Object image
@@ -675,3 +694,10 @@ def gnb_predict(img, bg='light', dataset='plat', feature_extraction='skeleton'):
         string += pars.columns.levels[0][arghyp]
 
     return string
+
+def preprocess2(path, bg='dark'):
+    img = mpimg.imread(path)
+    imgs = util.downsample(img)
+    bin = binarize(imgs, bg)
+    pix, skel = zhangsuen(np.argwhere(bin), bin)
+    obj = preprocess(segment(skel))
