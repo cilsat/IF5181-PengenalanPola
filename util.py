@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+
 """
 Dokumentasi
 - teori: link/hubungan antara konsep
@@ -84,12 +85,7 @@ def equalize(img):
     return eq
 
 def getgrayscale(img):
-    # sum colors (elements along last axis) and divide by number
-    # of colors
-    if img.dtype == "float32":
-        img[:] = np.asarray(img*255, dtype=np.uint8)
-
-    return np.asarray((0.29*img[...,0] + 0.59*img[...,1] + 0.11*img[...,2])/3, dtype=np.uint8)
+    return np.asarray((0.2989*img[...,0] + 0.5870*img[...,1] + 0.1140*img[...,2]), dtype=np.uint8)
 
 def getunique(imgs):
     # detect unique colors:
@@ -116,8 +112,123 @@ def getbackground(img, imgs, thrs=10):
 
     return back
 
+def degreezero(source, type="average"):
+    if len(source.shape) == 3:
+        imgb = getgrayscale(source)
+    else: imgb = np.copy(source)
+
+    imgt = np.zeros((imgb.shape), dtype=imgb.dtype)
+    sub = np.zeros((3,3), dtype=int)
+
+    if type == "average":
+        for row in xrange(1, imgb.shape[0] - 1):
+            for col in xrange(1, imgb.shape[1] - 1):
+                sub[:] = imgb[row-1:row+2, col-1:col+2]
+                imgt.itemset((row,col), np.sum(sub)/9.)
+
+    elif type == "difference":
+        for row in xrange(1, imgb.shape[0] - 1):
+            for col in xrange(1, imgb.shape[1] - 1):
+                sub[:] = imgb[row-1:row+2, col-1:col+2]
+                imgt.itemset((row,col), np.abs([sub[0,0] - sub[2,2], sub[0,1] - sub[2,1], sub[0,2] - sub[2,0], sub[1,2] - sub[1,0]]).max())
+
+    elif type == "homogen":
+        for row in xrange(1, imgb.shape[0] - 1):
+            for col in xrange(1, imgb.shape[1] - 1):
+                sub[:] = imgb[row-1:row+2, col-1:col+2]
+                sub[:] -= sub[1,1]
+                imgt.itemset((row,col), np.abs(sub).max())
+
+    return imgt
+
 def convolve(filt, source):
-    return np.fft.irfft2(np.fft.rfft2(source) * np.fft.rfft2(filt, source.shape)).astype(source.dtype)
+    if len(source.shape) == 3:
+        imgb = getgrayscale(source)
+    else: imgb = np.copy(source)
+
+    imgt = np.zeros((imgb.shape))
+    sub = np.zeros((3,3), dtype=imgb.dtype)
+
+    for row in xrange(1, imgb.shape[0] - 1):
+        for col in xrange(1, imgb.shape[1] - 1):
+            sub[:] = imgb[row-1:row+2, col-1:col+2]
+            imgt.itemset((row,col), np.sum(sub * filt)/9.)
+
+    return imgt
+
+"""
+Make sure that source image is grayscale before using this function
+"""
+def convolvefft(filt, source):
+    return np.fft.irfft2(np.fft.rfft2(source) * np.fft.rfft2(filt, source.shape))
+
+def degreeone(source, type="sobel", fft=True):
+    if len(source.shape) == 3:
+        imgb = getgrayscale(source)
+    else: imgb = np.copy(source)
+
+    imgt = np.zeros((imgb.shape), dtype=np.uint8)
+
+    if type == "sobel":
+        horizontal = np.array(([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]), dtype=float)
+        vertical = np.array(([[1, 2, 1], [0, 0, 0], [-1, -2, -1]]), dtype=float)
+        if fft:
+            imgt = np.sqrt(np.square(convolvefft(horizontal, imgb)) + np.square(convolvefft(vertical, imgb))).astype(np.uint8)
+        else:
+            imgt = np.abs(convolve(horizontal, imgb) + convolve(vertical, imgb)).astype(np.uint8)
+
+    elif type == "prewitt":
+        horizontal = np.array(([[-1, -1, -1], [0, 0, 0], [1, 1, 1]]), dtype=float)
+        vertical = np.array(([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]]), dtype=float)
+        if fft:
+            imgt = np.sqrt(np.square(convolvefft(horizontal, imgb)) + np.square(convolvefft(vertical, imgb))).astype(np.uint8)
+        else:
+            imgt = np.abs(convolve(horizontal, imgb) + convolve(vertical, imgb)).astype(np.uint8)
+
+    elif type == "freichen":
+        sq2 = 2**0.5
+        g1 = (0.5/sq2)*np.array([[1, sq2, 1], [0, 0, 0], [-1, -sq2, -1]], dtype=float)
+        g2 = (0.5/sq2)*np.array([[1, 0, -1], [sq2, 0, -sq2], [1, 0, -1]], dtype=float)
+        g3 = (0.5/sq2)*np.array([[0, -1, sq2], [1, 0, -1], [-sq2, 1, 0]], dtype=float)
+        g4 = (0.5/sq2)*np.array([[sq2, -1, 0], [-1, 0, 1], [0, 1, -sq2]], dtype=float)
+        g5 = 0.5*np.array([[0, 1, 0], [-1, 0, -1], [0, 1, 0]], dtype=float)
+        g6 = 0.5*np.array([[-1, 0, 1], [0, 0, 0], [1, 0, -1]], dtype=float)
+        g7 = (1./6)*np.array([[1, -2, 1], [-2, 4, -2], [1, -2, 1]], dtype=float)
+        g8 = (1./6)*np.array([[-2, 1, -2], [1, 4, 1], [-2, 1, -2]], dtype=float)
+        g9 = (1./3)*np.ones((3,3), dtype=float)
+
+        if fft:
+            mask1 = np.sqrt(np.square(convolvefft(g1, imgb)) + np.square(convolvefft(g2, imgb)) + np.square(convolvefft(g3, imgb)) + np.square(convolvefft(g4, imgb)))
+            imgt = mask1.astype(np.uint8)
+
+    return imgt
+
+def degreetwo(source, type="kirsch"):
+    if len(source.shape) == 3:
+        imgb = getgrayscale(source)
+    else:
+        imgb = np.copy(source)
+
+    filt = np.zeros((8), dtype=int)
+    if type == "kirsch":
+        filt[:] = np.array([5, 5, 5, -3, -3, -3, -3, -3])
+    elif type == "prewitt":
+        filt[:] = np.array([1, 1, -1, -1, -1, 1, 1, 1])
+
+    temp = []
+
+    for n in xrange(8):
+        if type == "kirsch":
+            rollfilt = np.insert(np.roll(filt, n), 4, 0).reshape((3,3))
+        elif type == "prewitt":
+            rollfilt = np.insert(np.roll(filt, n), 4, -2).reshape((3,3))
+        temp.append(convolvefft(rollfilt, imgb))
+
+    temp = np.dstack(temp)
+    imgt = np.max(temp, axis=-1)
+    imgt = (255*imgt/imgt.max()).astype(np.uint8)
+
+    return imgt
 
 def gaussian_filt(shape=(3,3), sigma=0.5):
     m, n = [(ss-1.)/2. for ss in shape]
@@ -136,12 +247,173 @@ def downsample(img, target_height=320):
         return img
     else:
         import scipy.ndimage as scimg
-        
-        if len(img.shape) == 3:
-            ratio = 500000./img.size
-            return scimg.zoom(img, (ratio, ratio, 1))
+        ratio = 10000000./img.size
+        return scimg.zoom(img, (ratio, ratio, 1), order=0)
 
     return
+
+"""
+Returns the color range of an input skin image.
+The colorrange variable determines the maximum range; if the color of the input image is
+wider than the colorrange then the range such that the maximum number of pixels falls 
+within that range is used.
+"""
+def mapColor(skin, colorrange=60):
+    r = skin[...,0]
+    g = skin[...,1]
+    b = skin[...,2]
+
+    hist_r = np.histogram(r, bins=255, range=(0,255))[0]
+    hist_g = np.histogram(g, bins=255, range=(0,255))[0]
+    hist_b = np.histogram(b, bins=255, range=(0,255))[0]
+
+    if r.ptp() > colorrange:
+        max_r = []
+        [max_r.append(np.sum(hist_r[n:n+colorrange])) for n in xrange(r.min(), r.max()-colorrange)]
+        range_r = np.argmax(max_r) + r.min()
+        range_r = [range_r, range_r+colorrange]
+    else:
+        range_r = [r.min(), r.max()]
+
+    if g.ptp() > colorrange:
+        max_g = []
+        [max_g.append(np.sum(hist_g[n:n+colorrange])) for n in xrange(g.min(), g.max()-colorrange)]
+        range_g = np.argmax(max_g) + g.min()
+        range_g = [range_g, range_g+colorrange]
+    else:
+        range_g = [g.min(), g.max()]
+
+    if b.ptp() > colorrange:
+        max_b = []
+        [max_b.append(np.sum(hist_b[n:n+colorrange])) for n in xrange(b.min(), b.max()-colorrange)]
+        range_b = np.argmax(max_b) + b.min()
+        range_b = [range_b, range_b+colorrange]
+    else:
+        range_b = [b.min(), b.max()]
+
+    return np.array([range_r, range_g, range_b]).T
+
+"""
+Returns a binarized version of the input image such that the pixels corresponding to the
+colormap are True and the rest are False.
+"""
+def mapImage(img, colormap):
+    return np.logical_and(np.all(img > colormap[0], axis=-1), np.all(img < colormap[1], axis=-1))
+
+"""
+Returns an image such that the pixels in objlist are surrounded by a green box.
+"""
+def boxFaces(img, objlist):
+    imgf = np.copy(img)
+    for obj in objlist:
+        objnp = np.array(obj)
+        y = objnp[:,0]
+        x = objnp[:,1]
+        y0 = y.min()
+        y1 = y.max()
+        x0 = x.min()
+        x1 = x.max()
+        green = [0,  255, 0]
+        imgf[y0, x0:x1] = green
+        imgf[y1, x0:x1] = green
+        imgf[y0:y1, x0] = green
+        imgf[y0:y1, x1] = green
+
+    return imgf
+
+"""
+Returns an image such that the pixels in objlist are displayed whereas the rest of the
+pixels are less transparent.
+"""
+def processFaces(img, objlist, transparency=0, minvar=500):
+    if transparency == 0:
+        mask = np.zeros(img.shape, dtype=np.uint8)
+    else:
+        mask = np.array(img*transparency, dtype=np.uint8)
+
+    for f in objlist:
+        face = np.array(f)
+        y = face[...,0]
+        x = face[...,1]
+        # hardwired height:width ratio
+        height = y.ptp()
+        width = x.ptp()
+        #if width*1./height > 1.2: continue
+        #if y.size*1./y.ptp() < 1.: continue
+        pix = img[y.min():y.max(), x.min():x.max()]
+        vari = np.var(np.sum(pix, axis=-1)/3)
+        if vari < minvar: continue
+        if face.size*1./(height*width) < 0.3: continue
+        mask[y.min():y.max(), x.min():x.max()] = img[y.min():y.max(), x.min():x.max()]
+
+    return mask
+
+def processFace(img, objlist, transparency=0, usemask=True):
+    if transparency == 0:
+        mask = np.zeros(img.shape, dtype=np.uint8)
+    else:
+        mask = np.empty(img*transparency, dtype=np.uint8)
+
+    sizes = []
+
+    for f in objlist:
+        obj = np.array(f)
+        y = obj[...,0]
+        x = obj[...,1]
+
+        sizes.append(y.ptp()*x.ptp())
+
+    face = np.array(objlist[np.array(sizes).argmax()])
+
+    y = face[...,0]
+    x = face[...,1]
+    # hardwired height:width ratio
+    #height = y.ptp()
+    #width = x.ptp()
+    #if width*1./height > 1.2: continue
+    #if y.size*1./y.ptp() < 1.: continue
+    if usemask:
+        mask[y.min():y.max(), x.min():x.max()] = img[y.min():y.max(), x.min():x.max()]
+    else:
+        mask = img[y.min():y.max(), x.min():x.max()]
+
+    return mask
+
+def cleanFaces(img, objlist, transparency=0):
+    if transparency == 0:
+        mask = np.zeros(img.shape, dtype=np.uint8)
+    else:
+        mask = np.array(img*transparency, dtype=np.uint8)
+
+    for f in objlist:
+        face = np.array(f)
+        y = face[...,0]
+        x = face[...,1]
+        # hardwired height:width ratio
+        height = y.ptp()
+        width = x.ptp()
+        mask = np.zeros((height, width, 3), dtype=np.uint8)
+        #if width*1./height > 1.2: continue
+        #if y.size*1./y.ptp() < 1.: continue
+        mask[y.min():y.max(), x.min():x.max()] = img[y.min():y.max(), x.min():x.max()]
+
+    return mask
+
+def getFaces(img, skin, range=60):
+    if np.any(np.array(img.shape) > 1200):
+        imgr = downsample(img)
+    else:
+        imgr = img
+
+    facesbin = mapImage(imgr, mapColor(skin, range))
+    objlist = segment(thin(facesbin))
+    #faces = processFaces(imgr, objlist)
+    faceproc = processFaces(imgr, objlist, transparency=0.25)
+    #objlist2 = segment(mapImage(faceproc, mapColor(skins, 100)))
+    #faceproc2 = processFaces(imgr, objlist2, transparency=0.25)
+    #faces = boxFaces(faceproc2, objlist2)
+
+    return faceproc
 
 """
 turn into grayscale, equalize, threshold
@@ -149,10 +421,10 @@ turn into grayscale, equalize, threshold
 def binarize(img, bg='dark'):
     # grayscale conversion
     gs = np.asarray((0.2989*img[...,0] + 0.5870*img[...,1] + 0.1140*img[...,2]), dtype=np.uint8)
-    
+
     # gaussian filter
     gauss = gaussian_filt()
-    pass1 = convolve(gauss, gs)
+    pass1 = convolvefft(gauss, gs)
 
     # histogram and cumulative sum
     hist = np.histogram(pass1, bins=256)[0]
@@ -167,7 +439,7 @@ def binarize(img, bg='dark'):
     """
 
     # gaussian filter
-    pass2 = convolve(gauss, pass1)
+    pass2 = convolvefft(gauss, pass1)
 
     # histogram and cumulative sum
     hist = np.histogram(pass2, bins=256)[0]
@@ -199,7 +471,7 @@ def binarize(img, bg='dark'):
     else:
         return pass2 < np.argmax(thr) + 1
 
-""" 
+"""
     applies otsu's automatic thresholding algorithm to separate
     background and foreground:
     1. Compute histogram and probabilities of intensity levels
@@ -211,28 +483,24 @@ def binarize(img, bg='dark'):
 """
 def otsu(img, bg='dark'):
     # compute grayscale version of image
-    imgg = getgrayscale(img)
-    # compute histogram and probabilities
-    hist = np.histogram(imgg,bins=256)[0]
-    # compute sum
-    sum = hist*xrange(255)
-    # initialize loop variables
-    wb = 0
-    sumb = 0
-    tot = imgg.size
-    thr = []
+    if len(img.shape) == 3:
+        imgg = getgrayscale(img)
+    else: imgg = np.copy(img)
 
-    for n in xrange(255):
-        wb += hist[n]
-        wf = tot - wb
-        if wb == 0:
-            continue
-        if wf == 0:
-            break
-        sumb += n*hist[n]
-        mb = 1.0*sumb/wb
-        mf = 1.0*(sum - sumb)/wf
-        thr.append(wb*wf*(mb-mf)**2)
+    # compute histogram and probabilities
+    hist = np.histogram(imgg, bins=256)[0]
+    cdf = hist.cumsum()
+
+    # otsu threshold
+    sumlist = hist*np.arange(256)
+    sumtot = np.sum(sumlist)
+    sumcum = sumlist.cumsum()
+    tot = imgg.size
+
+    wf = tot - cdf
+    mb = sumcum/cdf
+    mf = (sumtot - sumcum)/wf
+    thr = cdf*wf*np.square(mb-mf)
 
     lvl = np.argmax(thr) + 1
     if bg == 'dark':
@@ -240,9 +508,10 @@ def otsu(img, bg='dark'):
     else:
         return imgg > lvl
 
-def zhangsuen(obj, img):
+def zhangsuen(img):
     # copy of original (binary) image
     imgt = np.copy(img)
+    obj = np.argwhere(img)
     # list of pixel coordinates
     # account for border cases by removing pixels on border from list
     list = np.array([o for o in obj if o[0] > 1 and o[0] < imgt.shape[0]-1 and o[1] > 1 and o[1] < imgt.shape[1]-1])
@@ -283,15 +552,15 @@ def zhangsuen(obj, img):
             sub = np.array([imgt.item(pix[0]-1, pix[1]-1), imgt.item(pix[0]-1, pix[1]), imgt.item(pix[0]-1, pix[1]+1), imgt.item(pix[0], pix[1]+1), imgt.item(pix[0]+1, pix[1]+1), imgt.item(pix[0]+1, pix[1]), imgt.item(pix[0]+1, pix[1]-1), imgt.item(pix[0], pix[1]-1)])
 
             if (2 <= np.sum(sub) <= 6 and
-                np.sum(np.diff(sub)) <= 2 and 
-                not (sub.item(1) and sub.item(3) and sub.item(7)) and 
+                np.sum(np.diff(sub)) <= 2 and
+                not (sub.item(1) and sub.item(3) and sub.item(7)) and
                 not (sub.item(1) and sub.item(5) and sub.item(7))):
                 mark_for_deletion.append(npix)
-                
+
         [imgt.itemset((list[n,0], list[n,1]), False) for n in mark_for_deletion]
         list = np.delete(list, mark_for_deletion, axis=0)
 
-    return list, imgt
+    return imgt
 
 """
 Testing procedure
@@ -325,7 +594,7 @@ def test(img, setname="sans"):
         output += chars[np.argmin(sqdiff)]
 
     return output
-    
+
 """
 Training procedure
 Essentially this is the process of labelling our training data
@@ -337,7 +606,7 @@ def train(img, setname="sans", featdimensions=10):
     objlist = segment(thinned)
     cleanobjlist = preprocess(objlist)
     print len(cleanobjlist)
-    
+
     # assign letters to features
     with open('train/order', 'r') as f:
         order = f.read().replace('\n', '')
@@ -361,6 +630,16 @@ We try to clean the objects as much as possible:
 2. Merge certain objects: the dots in 'i' and 'j', the "holes" in 'a', 'o', etc
 """
 def preprocess(objlist):
+
+    prefeats = prefeatextract(objlist)
+
+    reordered_prefeats, reordered_objlist = reorder(prefeats)
+
+    merged_objlist = mergeobj(reordered_prefeats, reordered_objlist)
+
+    return merged_objlist
+
+def prefeatextract(objlist):
     # get pre-features: we need absolute centers and heights, absolute top, and size of objects
     feats = []
     for obj in objlist:
@@ -369,10 +648,9 @@ def preprocess(objlist):
 
     prefeats = np.array(feats)
 
-    # get tree of nested objects (objects inside other objects)
-    # sort objects by size in descending order, as we'll assume larger objects are more likely to contain other objects
-    argbysize = prefeats[:,-1].argsort()[::-1]
+    return prefeats
 
+def reorder(prefeats):
     # figure out where lines change:
     # calc vertical differences between object centers
     # if vertical difference is above a certain threshold (in this case the mean height of objects)
@@ -388,6 +666,9 @@ def preprocess(objlist):
     # sort prefeats
     prefeats[:] = prefeats[objid]
 
+    return prefeats, orderedobjlist
+
+def mergeobj(prefeats, orderedobjlist):
     # we try to merge objects if they're sufficiently close (for example the dots in 'i' and 'j')
     # here we merge objects that are 10x closer to each other than is expected
     # 10x is completely arbitrary
@@ -403,13 +684,16 @@ def preprocess(objlist):
 
     return mergedobjlist
 
+
 """
 Thinning
 Discard all pixels except for border pixels
 """
 def thin(img, bg='dark'):
-    # binarize image
-    imgb = binarize(img, bg)
+    imgb = np.copy(img)
+    if img.dtype != bool:
+        # binarize image
+        imgb = binarize(img, bg)
     # copy binary image to new one that will contain our final image
     imgt = np.copy(imgb)
 
@@ -437,57 +721,56 @@ Object detection
 Attempt to cluster neighbouring pixels into separate objects
 SERIOUSLY NEEDS OPTIMIZATION!
 """
-def segment(img):
+def segment(img, minsize=0.1, chaincode=False):
     # use copy of img as we'll be eliminating elements
     imgt = np.copy(img)
     imgtb = imgt[1:-1, 1:-1]
     # obtain positions of border nonzeropix (non-zero elements)
-    nonzeropix = np.argwhere(imgtb) + np.ones((1,1), dtype=np.uint8)
+    #nonzeropix = np.argwhere(imgtb) + np.ones((1,1), dtype=np.uint8)
     allobjpix = []
+    allobjcc = []
 
-    imgh = imgt.shape[0]*0.1
+    imgh = imgt.shape[0]*minsize
 
+    startrow = 0
     # for all nonzero pixels: for all objects
     while np.any(imgt):
         # when we encounter a nonzero pixel we try to trace all nonzero pixels connected to it using depth
         # first search. in addition, this procedure erases pixels from the image once they're checked.
         # the search returns a list of connected pixel indices: an object
-        obj, imgt = dfsi(imgt)
+
+        startpix = findfirst(startrow, imgt)
+        startrow = startpix[0]
+        obj, cc = dfsi(imgt, startpix)
         # add object path to our output array
         if len(obj) > imgh:
             allobjpix += [obj]
+            allobjcc += [cc]
 
         # each time an object is identified we reevaluate the indices of nonzero pixels in our image.
-        # this is an expensive operation and should ideally be trashed: alternatively, we should delete 
+        # this is an expensive operation and should ideally be trashed: alternatively, we should delete
         # elements from nonzeropix directly once they've been accounted for in our dfs procedure
         #nonzeropix = np.argwhere(imgtb) + np.ones((1,1), dtype=np.uint8)
-        
-    return allobjpix
+
+    if chaincode:
+        return allobjpix, allobjcc
+    else:
+        return allobjpix
 
 """
 Iterative depth-first search
 """
-def dfsi(bitmap):
-    #startpixel = [bitmapnonzero.item(0, 0), bitmapnonzero.item(0, 1)]
+def dfsi(bitmap, startpixel):
 
-    startrow = 0
-    while True:
-        scanline = bitmap[startrow, :]
-        if np.any(scanline):
-            startcol = np.argwhere(scanline)[0, 0]
-            break
-        startrow += 1
-
-    startpixel = [startrow, startcol]
-    #print startpixel
-    
     stack = [startpixel]
     objpix = [startpixel]
+    objcc = []
 
     bound = False
     while stack:
         row, col = stack.pop()
         if row == 0 or col == 0: bound = True
+        bitmap.itemset((row, col), False)
         edges = np.argwhere(bitmap[row-1:row+2, col-1:col+2]) - [1, 1]
 
         for edge in edges:
@@ -495,11 +778,22 @@ def dfsi(bitmap):
             if nextpixel not in objpix:
                 stack += [nextpixel]
                 objpix += [nextpixel]
+                objcc += [[edge[0], edge[1]]]
 
-    [bitmap.itemset((pix[0], pix[1]), False) for pix in objpix]
+    #[bitmap.itemset((pixel[0], pixel[1]), False) for pixel in objpix]
 
-    if bound: return [], bitmap
-    else: return objpix, bitmap
+    if bound: return [], []
+    else: return objpix, objcc
+
+def findfirst(startrow, bitmap):
+    while True:
+        scanline = bitmap[startrow, :]
+        if np.any(scanline):
+            startcol = np.argwhere(scanline)[0,0]
+            break
+        startrow += 1
+
+    return [startrow, startcol]
 
 """
 Object image
@@ -515,6 +809,29 @@ def getobjimg(objpix):
 
     for pix in objpix:
         objimg[pix[0], pix[1]] = True
+
+    import matplotlib.pyplot as plt
+    plt.imshow(objimg)
+    plt.show()
+
+def drawobj(img, objpix, box=True, opac=0.25):
+    objpix = np.array(objpix)
+    y = objpix[:,0]
+    x = objpix[:,1]
+
+    objimg = np.array(img*opac, dtype=np.uint8)
+    objimg[y, x] = img[y, x]
+    y0 = y.min()
+    y1 = y.max()
+    x0 = x.min()
+    x1 = x.max()
+
+    if box:
+        green = [0,  255, 0]
+        objimg[y0, x0:x1] = green
+        objimg[y1, x0:x1] = green
+        objimg[y0:y1, x0] = green
+        objimg[y0:y1, x1] = green
 
     import matplotlib.pyplot as plt
     plt.imshow(objimg)
@@ -617,11 +934,11 @@ We are trying to achieve the (accurate) classification/prediction of the class o
 
 A "feature" is equvalent to an "attribute" or "random variable" in this case. For freeman chain encoding,
 a feature is the value contained in a single field of our track x sector x direction matrix.
-A complete collection of the features of 
+A complete collection of the features of
 "Features" refers to the collection of features for a single instance of an output class, for instance the
 features of the output class "z" for a font "dejavusans".
 
-A collection of all the features for all output classes is a "feature set", 
+A collection of all the features for all output classes is a "feature set",
 
 We define a "training set" to be a collection of feature sets with each output class represented equally.
 """
@@ -632,7 +949,7 @@ def gnb_train(dataset='plat', feature_extraction='skeleton'):
     # obtain the labels of our training dataset
     with open('train/order', 'r') as f:
         char = f.read().replace('\n', '')
-        
+
     # obtain the actual training dataset
     files = [file for file in os.listdir('train/gnb/' + dataset) if file.startswith('font')]
     data = []
@@ -695,9 +1012,12 @@ def gnb_predict(img, bg='light', dataset='plat', feature_extraction='skeleton'):
 
     return string
 
-def preprocess2(path, bg='dark'):
+def preprocess2(path, bg='dark', fast=True, classifier='syntactic'):
     img = mpimg.imread(path)
-    imgs = util.downsample(img)
-    bin = binarize(imgs, bg)
+
+    if fast:
+        img = util.downsample(img)
+
+    bin = binarize(img, bg)
     pix, skel = zhangsuen(np.argwhere(bin), bin)
     obj = preprocess(segment(skel))

@@ -1,6 +1,7 @@
 #!/bin/python
 import sys
 import matplotlib.image as mpimg
+import numpy as np
 
 import util
 
@@ -9,7 +10,7 @@ def main(argv):
     if len(argv) > 1:
         testimg = mpimg.imread(argv[1])
     else:
-        testimg = mpimg.imread('/home/cilsat/Dropbox/kuliah/sem1/pp/train/gnb/plat/1e18d1bebafc0f94110972e2dd546db8_gallery.jpg')
+        testimg = mpimg.imread('/home/cilsat/Dropbox/kuliah/sem1/pp/portrait.jpeg')
 
     # calc sorted 2-D representation of image
     #imgs = util.sortimg(util.flattenimg(img))
@@ -44,8 +45,33 @@ def main(argv):
     """
 
     # License Plate recognition
+    """
     dataset = "plat"
     util.gnb_train(dataset=dataset)
+    """
+
+    # Face detection
+    h = testimg.shape[0]
+    w = testimg.shape[1]
+    face = testimg[int(0*h):int(0.7*h), int(0.15*w):int(0.45*w)]
+    pltshow(face)
+    imgf = util.mapImage(testimg, util.mapColor(face, 60))
+    pltshow(imgf)
+    imgt = util.thin(imgf, bg='dark')
+    pltshow(imgt)
+    obj = util.segment(imgt, minsize=0.5)[0]
+    print len(obj)
+    util.getobjimg(obj[0])
+
+    frame = np.array(obj[0])
+    x = frame[...,1]
+    y = frame[...,0]
+    h = y.ptp()
+    w = x.ptp()
+    x0 = x.min()
+    y0 = y.min()
+    mask = np.zeros(testimg.shape, dtype=np.uint8)
+    print mask.shape
 
 def plthist(hist):
     import matplotlib.pyplot as plt
